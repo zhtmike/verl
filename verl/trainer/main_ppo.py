@@ -117,7 +117,12 @@ class TaskRunner:
         from verl.single_controller.ray import RayWorkerGroup
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+            # TODO: make it configurable
+            if os.environ.get("VERL_TYPE", None) == "diffusion":
+                from verl.workers.fsdp_workers import AsyncDiffusionActorRolloutRefWorker as AsyncActorRolloutRefWorker
+                from verl.workers.fsdp_workers import DiiffusionActorRolloutRefWorker as ActorRolloutRefWorker
+            else:
+                from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker

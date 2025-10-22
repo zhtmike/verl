@@ -1920,3 +1920,206 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
+
+
+class DiiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
+    def _build_model_optimizer(
+        self,
+        model_path,
+        fsdp_config: FSDPEngineConfig,
+        optim_config,
+        override_model_config,
+        use_fused_kernels=False,
+        enable_gradient_checkpointing=False,
+        role="actor",
+        enable_activation_offload=False,
+        **kwargs,
+    ):
+        from diffusers import DiffusionPipeline, ModelMixin
+        from torch import optim
+        from torch.distributed.fsdp import CPUOffload, MixedPrecision
+
+        from verl.utils.model import print_model_size
+        from verl.utils.torch_dtypes import PrecisionType
+
+        assert role in ["actor", "ref"]
+
+        log_gpu_memory_usage(f"Before init {role} from Diffusers", logger=logger)
+        local_path = model_path
+
+        torch_dtype = fsdp_config.get("model_dtype", None)
+        if torch_dtype is None:
+            torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
+        else:
+            torch_dtype = PrecisionType.to_dtype(torch_dtype)
+
+        actor_model_config: dict = DiffusionPipeline.load_config(local_path)
+        actor_model_config.update(override_model_config)
+        if self.rank == 0:
+            print(f"Model config after override: {actor_model_config}")
+
+        init_context = get_init_weight_context_manager(use_meta_tensor=True, mesh=self.device_mesh)
+
+        with init_context(), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            pipeline = DiffusionPipeline.from_pretrained(
+                pretrained_model_name_or_path=local_path, torch_dtype=torch_dtype, **actor_model_config
+            )
+            if not hasattr(pipeline, "transformer"):
+                raise NotImplementedError("Only Transformer-based diffusion model is supported now")
+
+            actor_module: ModelMixin = pipeline.transformer
+
+            if use_fused_kernels:
+                actor_module.fuse_qkv_projections()
+
+            if enable_gradient_checkpointing:
+                actor_module.enable_gradient_checkpointing()
+
+            if self._is_lora:
+                print("Applying LoRA to actor module")
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    "r": self.config.model.lora_rank,
+                    "lora_alpha": self.config.model.lora_alpha,
+                    # TODO: make init_lora_weights configurable
+                    "init_lora_weights": "gaussian",
+                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+                    "bias": "none",
+                }
+                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+
+        self.use_orig_params = fsdp_config.get("use_orig_params", False)
+
+        torch.distributed.barrier()
+
+        if self.rank == 0:
+            print_model_size(actor_module)
+
+        log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
+
+        # We wrap FSDP for rollout as well
+        mixed_precision_config = fsdp_config.get("mixed_precision", None)
+        if mixed_precision_config is not None:
+            param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
+            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
+            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+        else:
+            param_dtype = torch.bfloat16
+            reduce_dtype = torch.float32
+            buffer_dtype = torch.float32
+
+        mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
+
+        auto_wrap_policy = get_fsdp_wrap_policy(
+            module=actor_module,
+            config=fsdp_config.get("wrap_policy", None),
+            is_lora=self.config.model.get("lora_rank", 0) > 0,
+        )
+
+        if self.rank == 0:
+            print(f"wrap_policy: {auto_wrap_policy}")
+
+        fsdp_mesh = self.device_mesh
+        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+
+        # We force reference policy to use CPUOffload to save memory.
+        # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
+        cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
+        fsdp_strategy = self.config.actor.strategy
+        if fsdp_strategy == "fsdp":
+            actor_module_fsdp = FSDP(
+                actor_module,
+                cpu_offload=cpu_offload,
+                param_init_fn=init_fn,
+                auto_wrap_policy=auto_wrap_policy,
+                device_id=get_device_id(),
+                sharding_strategy=sharding_strategy,  # zero3
+                mixed_precision=mixed_precision,
+                sync_module_states=True,
+                device_mesh=self.device_mesh,
+                use_orig_params=self.use_orig_params,
+                forward_prefetch=fsdp_config.get("forward_prefetch", False),
+            )
+        elif fsdp_strategy == "fsdp2":
+            assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
+            mp_policy = MixedPrecisionPolicy(
+                param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
+            )
+            if role == "actor" and fsdp_config.offload_policy:
+                cpu_offload = CPUOffloadPolicy(pin_memory=True)
+                self._is_offload_param = False
+                self._is_offload_optimizer = False
+            else:
+                cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
+
+            fsdp_kwargs = {
+                "mesh": fsdp_mesh,
+                "mp_policy": mp_policy,
+                "offload_policy": cpu_offload,
+                "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
+            }
+            full_state = actor_module.state_dict()
+            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
+            fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
+            actor_module_fsdp = actor_module
+        else:
+            raise NotImplementedError(f"not implement {fsdp_strategy}")
+
+        if enable_activation_offload:
+            enable_activation_offloading(actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing)
+
+        log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
+
+        # TODO: add more optimizer args into config
+        if role == "actor" and optim_config is not None:
+            from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+
+            actor_optimizer = optim.AdamW(
+                actor_module_fsdp.parameters(),
+                lr=optim_config.lr,
+                betas=optim_config.get("betas", (0.9, 0.999)),
+                weight_decay=optim_config.get("weight_decay", 1e-2),
+            )
+
+            total_steps = optim_config.get("total_training_steps", 0)
+            num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
+            lr_scheduler_type = optim_config.get("lr_scheduler_type", "constant")
+            min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
+            num_cycles = optim_config.get("num_cycles", 0.5)
+            if num_warmup_steps < 0:
+                num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
+                num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+
+            if self.rank == 0:
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+
+            if lr_scheduler_type == "constant":
+                actor_lr_scheduler = get_constant_schedule_with_warmup(
+                    optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps
+                )
+            elif lr_scheduler_type == "cosine":
+                actor_lr_scheduler = get_cosine_schedule_with_warmup(
+                    optimizer=actor_optimizer,
+                    num_warmup_steps=num_warmup_steps,
+                    num_training_steps=total_steps,
+                    min_lr_ratio=min_lr_ratio,
+                    num_cycles=num_cycles,
+                )
+            else:
+                raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
+
+            log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
+        else:
+            actor_optimizer = None
+            actor_lr_scheduler = None
+
+        return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
+
+
+class AsyncDiffusionActorRolloutRefWorker(DiiffusionActorRolloutRefWorker):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
+        raise NotImplementedError
