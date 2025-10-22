@@ -1963,8 +1963,9 @@ class DiiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
+            # TODO: how to pass the actor_model_config into the pipeline?
             pipeline = DiffusionPipeline.from_pretrained(
-                pretrained_model_name_or_path=local_path, torch_dtype=torch_dtype, **actor_model_config
+                pretrained_model_name_or_path=local_path, torch_dtype=torch_dtype
             )
             if not hasattr(pipeline, "transformer"):
                 raise NotImplementedError("Only Transformer-based diffusion model is supported now")

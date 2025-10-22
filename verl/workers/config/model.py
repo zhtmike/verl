@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -88,6 +88,9 @@ class HFModelConfig(BaseConfig):
     architectures: Optional[list[str]] = None
 
     def __post_init__(self):
+        if os.environ.get("VERL_TYPE", None) == "diffusion":
+            return
+
         import_external_libs(self.external_lib)
 
         if self.hf_config_path is None:

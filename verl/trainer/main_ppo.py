@@ -283,10 +283,13 @@ class TaskRunner:
         # Instantiate the tokenizer and processor.
         from verl.utils import hf_processor, hf_tokenizer
 
-        trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        # Used for multimodal LLM, could be None
-        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+        if os.environ.get("VERL_TYPE", None) != "diffusion":
+            trust_remote_code = config.data.get("trust_remote_code", False)
+            tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+            # Used for multimodal LLM, could be None
+            processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+        else:
+            tokenizer, processor = None, None
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
