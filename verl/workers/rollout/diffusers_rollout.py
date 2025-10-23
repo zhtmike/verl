@@ -15,20 +15,74 @@
 Rollout with diffusers models.
 """
 
-from torch import nn
+import logging
+import os
+from typing import Generator
+
+import torch
+from diffusers import DiffusionPipeline
+from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.utils.device import get_device_name
+from verl.utils.profiler import GPUMemoryLogger
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 from .base import BaseRollout
 
 __all__ = ["DiffusersRollout"]
 
 
-class DiffusersRollout(BaseRollout):
-    def __init__(self, module: nn.Module, config):
-        super().__init__()
-        self.config = config
-        self.module = module
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+
+class DiffusersRollout(BaseRollout):
+    def __init__(
+        self,
+        rollout_module: DiffusionPipeline,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
+    ):
+        super().__init__(config, model_config, device_mesh)
+        self.rollout_module = rollout_module
+
+    @GPUMemoryLogger(role="diffusers rollout spmd", logger=logger)
+    @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        raise NotImplementedError()
+        # TODO: hard coded for 4 images
+        NUM = 4
+        input_prompts = self.rollout_module.tokenizer.batch_decode(
+            prompts.batch["input_ids"][:NUM], skip_special_tokens=True
+        )
+
+        with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
+            images = self.rollout_module(input_prompts).images
+
+        for i, image in enumerate(images):
+            image.save(f"tmp_{i}.jpg")
+
+    async def resume(self, tags: list[str]):
+        """Resume rollout weights or kv cache in GPU memory.
+
+        Args:
+            tags: weights or kv_cache.
+        """
+        pass
+
+    async def update_weights(
+        self,
+        weights: Generator[tuple[str, torch.Tensor], None, None],
+        **kwargs,
+    ):
+        """Update the weights of the rollout model.
+
+        Args:
+            weights: A generator that yields the name of the weight tensor and the tensor itself.
+        """
+        pass
+
+    async def release(self):
+        """Release weights and kv cache in GPU memory."""
+        pass

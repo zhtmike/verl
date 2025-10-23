@@ -289,7 +289,16 @@ class TaskRunner:
             # Used for multimodal LLM, could be None
             processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
         else:
-            tokenizer, processor = None, None
+            from diffusers import DiffusionPipeline
+
+            diffusion_config: dict = DiffusionPipeline.load_config(local_path)
+            if "tokenizer" not in diffusion_config:
+                raise ValueError(
+                    f"The diffusion model config should contain a tokenizer. But get {diffusion_config.keys()}"
+                )
+            trust_remote_code = config.data.get("trust_remote_code", False)
+            tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=trust_remote_code)
+            processor = None
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
@@ -301,7 +310,12 @@ class TaskRunner:
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 
-        from verl.utils.dataset.rl_dataset import collate_fn
+        if os.environ.get("VERL_TYPE", None) == "diffusion":
+            from verl.utils.dataset.rl_dataset import DiffusionTextPromptDataset
+
+            collate_fn = DiffusionTextPromptDataset.collate_fn
+        else:
+            from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(
@@ -358,7 +372,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
     """
     from torch.utils.data import Dataset
 
-    from verl.utils.dataset.rl_dataset import RLHFDataset
+    from verl.utils.dataset.rl_dataset import DiffusionTextPromptDataset, RLHFDataset
 
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
@@ -377,6 +391,8 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
         dataset_cls = DynamicGenDataset
         print("Using DynamicGenDataset for data generation.")
+    elif os.environ.get("VERL_TYPE", None) == "diffusion":
+        dataset_cls = DiffusionTextPromptDataset
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset
