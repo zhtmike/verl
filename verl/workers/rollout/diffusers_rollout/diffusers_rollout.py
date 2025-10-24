@@ -21,6 +21,7 @@ from typing import Generator
 
 import torch
 from diffusers import DiffusionPipeline
+from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
@@ -28,7 +29,7 @@ from verl.utils.device import get_device_name
 from verl.utils.profiler import GPUMemoryLogger
 from verl.workers.config import HFModelConfig, RolloutConfig
 
-from .base import BaseRollout
+from ..base import BaseRollout
 
 __all__ = ["DiffusersRollout"]
 
@@ -51,17 +52,20 @@ class DiffusersRollout(BaseRollout):
     @GPUMemoryLogger(role="diffusers rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        # TODO: hard coded for 4 images
+        # TODO: hard coded, for test only
         NUM = 4
-        input_prompts = self.rollout_module.tokenizer.batch_decode(
-            prompts.batch["input_ids"][:NUM], skip_special_tokens=True
-        )
+        HEIGHT, WIDTH = 512, 512
+        MAX_SEQ_LENGTH = 512
+        input_prompts = prompts.non_tensor_batch["input_prompts"][:NUM].tolist()
 
         with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
-            images = self.rollout_module(input_prompts).images
+            images = self.rollout_module(
+                input_prompts, height=HEIGHT, width=WIDTH, max_sequence_length=MAX_SEQ_LENGTH, output_type="pt"
+            ).images
 
-        for i, image in enumerate(images):
-            image.save(f"tmp_{i}.jpg")
+        batch = TensorDict({"images": images}, batch_size=len(images))
+
+        return DataProto(batch=batch)
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.

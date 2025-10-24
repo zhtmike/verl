@@ -665,28 +665,6 @@ class RayPPOTrainer:
 
         return metric_dict
 
-    def _validate_for_diffusion(self):
-        for test_data, _ in self.val_dataloader:
-            # repeat test batch
-            test_batch = test_data * self.config.actor_rollout_ref.rollout.val_kwargs.n
-
-            # we need a tokenizer here because the test batch must be tensorized
-            # TODO: try to drop it, or make it configurable
-            test_batch = self.tokenizer(test_batch, padding=True, return_tensors="pt").input_ids
-
-            test_batch = DataProto.from_single_dict({"input_ids": test_batch})
-
-            if not self.async_rollout_mode:
-                test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_batch)
-            else:
-                test_output_gen_batch = self.async_rollout_manager.generate_sequences(test_batch)
-
-            print(test_output_gen_batch)
-            # TODO: add reward evaluation for diffusion model validation
-
-        metric_dict = {}
-        raise metric_dict
-
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
 
@@ -1042,10 +1020,7 @@ class RayPPOTrainer:
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            if os.environ.get("VERL_TYPE", None) == "diffusion":
-                val_metrics = self._validate_for_diffusion()
-            else:
-                val_metrics = self._validate()
+            val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)

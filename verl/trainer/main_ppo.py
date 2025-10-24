@@ -24,6 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
+from verl.trainer.ppo.ray_diffusion_trainer import RayDiffusionPPOTrainer
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
@@ -289,16 +290,7 @@ class TaskRunner:
             # Used for multimodal LLM, could be None
             processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
         else:
-            from diffusers import DiffusionPipeline
-
-            diffusion_config: dict = DiffusionPipeline.load_config(local_path)
-            if "tokenizer" not in diffusion_config:
-                raise ValueError(
-                    f"The diffusion model config should contain a tokenizer. But get {diffusion_config.keys()}"
-                )
-            trust_remote_code = config.data.get("trust_remote_code", False)
-            tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=trust_remote_code)
-            processor = None
+            tokenizer, processor = None, None
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
@@ -337,7 +329,12 @@ class TaskRunner:
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
-        trainer = RayPPOTrainer(
+        if os.environ.get("VERL_TYPE", None) == "diffusion":
+            trainer_cls = RayDiffusionPPOTrainer
+        else:
+            trainer_cls = RayPPOTrainer
+
+        trainer = trainer_cls(
             config=config,
             tokenizer=tokenizer,
             processor=processor,
