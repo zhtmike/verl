@@ -80,7 +80,7 @@ class StableDiffusion3PipelineWithLogProb(StableDiffusion3Pipeline):
         joint_attention_kwargs: Optional[dict[str, Any]] = None,
         clip_skip: Optional[int] = None,
         callback_on_step_end: Optional[Callable[[int, int, dict], None]] = None,
-        callback_on_step_end_tensor_inputs: Sequence[str] = ("latents"),
+        callback_on_step_end_tensor_inputs: Sequence[str] = ("latents",),
         max_sequence_length: int = 256,
         skip_guidance_layers: list[int] = None,
         skip_layer_guidance_scale: float = 2.8,

@@ -801,6 +801,8 @@ class DataProto:
         """
         if self.batch is not None and other.batch is not None:
             self.batch = union_tensor_dict(self.batch, other.batch)
+        elif (self.batch or other.batch) is not None:
+            self.batch = self.batch or other.batch
         self.non_tensor_batch = union_numpy_dict(self.non_tensor_batch, other.non_tensor_batch)
         self.meta_info = union_two_dict(self.meta_info, other.meta_info)
         return self

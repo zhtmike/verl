@@ -103,6 +103,14 @@ def default_compute_score(
 
         res = search_r1_like_qa_em.compute_score(solution_str, ground_truth)
 
+    elif data_source in [
+        "ocr",
+    ]:
+        # TODO: temp use, change to API call of OCR later
+        from . import jpeg_imcompressibility
+
+        res = jpeg_imcompressibility.compute_score(solution_str, ground_truth)
+
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 

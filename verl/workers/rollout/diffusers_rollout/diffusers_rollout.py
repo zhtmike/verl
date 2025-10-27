@@ -21,13 +21,14 @@ from typing import Generator
 
 import torch
 from diffusers import DiffusionPipeline
+from PIL import Image
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
 from verl.utils.device import get_device_name
 from verl.utils.profiler import GPUMemoryLogger
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import DiffuserModelConfig, RolloutConfig
 
 from ..base import BaseRollout
 
@@ -43,27 +44,37 @@ class DiffusersRollout(BaseRollout):
         self,
         rollout_module: DiffusionPipeline,
         config: RolloutConfig,
-        model_config: HFModelConfig,
+        model_config: DiffuserModelConfig,
         device_mesh: DeviceMesh,
     ):
         super().__init__(config, model_config, device_mesh)
         self.rollout_module = rollout_module
+        self.config = config
+        self.model_config = model_config
+        self.device_mesh = device_mesh
 
     @GPUMemoryLogger(role="diffusers rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        # TODO: hard coded, for test only
-        NUM = 4
+        # TODO: hard coded, for test only, make is configurable later
         HEIGHT, WIDTH = 512, 512
-        MAX_SEQ_LENGTH = 512
-        input_prompts = prompts.non_tensor_batch["input_prompts"][:NUM].tolist()
+        input_texts = prompts.non_tensor_batch["prompt"].tolist()
 
         with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
-            images = self.rollout_module(
-                input_prompts, height=HEIGHT, width=WIDTH, max_sequence_length=MAX_SEQ_LENGTH, output_type="pt"
+            images: torch.Tensor = self.rollout_module(
+                input_texts, height=HEIGHT, width=WIDTH, max_sequence_length=self.config.prompt_length, output_type="pt"
             ).images
 
-        batch = TensorDict({"images": images}, batch_size=len(images))
+        # TODO: hard coded, for test only, drop later
+        images_pil = images.cpu().float().permute(0, 2, 3, 1).numpy()
+        images_pil = (images_pil * 255).round().astype("uint8")
+        os.makedirs("visual", exist_ok=True)
+        for image in images_pil:
+            assert image.shape == (HEIGHT, WIDTH, 3)
+            uuid = os.urandom(8).hex()
+            Image.fromarray(image).save(f"visual/{uuid}.jpg")
+
+        batch = TensorDict({"responses": images}, batch_size=len(images))
 
         return DataProto(batch=batch)
 

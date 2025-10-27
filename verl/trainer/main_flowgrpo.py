@@ -24,7 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_diffusion_trainer import RayDiffusionPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
@@ -122,22 +122,15 @@ class TaskRunner:
         from verl.single_controller.ray import RayWorkerGroup
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
+            from verl.workers.diffusion_fsdp_workers import (
+                AsyncDiffusionActorRolloutRefWorker,
+                DiffusionActorRolloutRefWorker,
             )
-            ray_worker_group_cls = RayWorkerGroup
-
-        elif config.actor_rollout_ref.actor.strategy == "megatron":
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
+                AsyncDiffusionActorRolloutRefWorker
                 if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
+                else DiffusionActorRolloutRefWorker
             )
             ray_worker_group_cls = RayWorkerGroup
 
@@ -247,8 +240,6 @@ class TaskRunner:
 
         from omegaconf import OmegaConf
 
-        from verl.utils.fs import copy_to_local
-
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
@@ -274,19 +265,7 @@ class TaskRunner:
             use_critic=need_critic(config),
         )
 
-        # Download the checkpoint from HDFS to the local machine.
-        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
-        local_path = copy_to_local(
-            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
-        )
-
-        # Instantiate the tokenizer and processor.
-        from verl.utils import hf_processor, hf_tokenizer
-
-        trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        # Used for multimodal LLM, could be None
-        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+        tokenizer, processor = None, None
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
@@ -320,7 +299,7 @@ class TaskRunner:
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
-        trainer = RayPPOTrainer(
+        trainer = RayDiffusionPPOTrainer(
             config=config,
             tokenizer=tokenizer,
             processor=processor,
@@ -353,30 +332,18 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
     Returns:
         dataset (Dataset): The dataset.
     """
-    from torch.utils.data import Dataset
 
-    from verl.utils.dataset.rl_dataset import RLHFDataset
+    from verl.utils.dataset.diffusion_dataset import DiffusionTextPromptDataset
 
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
     if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        # Dynamically load the custom dataset class
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
-        # Verify that the custom dataset class inherits from torch.utils.data.Dataset
-        if not issubclass(dataset_cls, Dataset):
-            raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from "
-                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-            )
+        raise NotImplementedError
     elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
-        # If a data generation strategy is specified, use the DynamicGenDataset class
-        from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
-
-        dataset_cls = DynamicGenDataset
-        print("Using DynamicGenDataset for data generation.")
+        raise NotImplementedError
     else:
         # Use the default RLHFDataset class if no custom class is specified
-        dataset_cls = RLHFDataset
+        dataset_cls = DiffusionTextPromptDataset
     print(f"Using dataset class: {dataset_cls.__name__}")
 
     # Instantiate the dataset using the determined dataset class

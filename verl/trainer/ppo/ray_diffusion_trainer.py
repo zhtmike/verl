@@ -13,12 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-PPO Trainer with Ray-based single controller.
-This trainer supports model-agonistic model initialization with huggingface
-"""
-
 import uuid
+from collections import defaultdict
 from pprint import pprint
 
 import numpy as np
@@ -33,6 +29,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
+    process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role
@@ -45,13 +42,28 @@ from .ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
 
 
 class RayDiffusionPPOTrainer(RayPPOTrainer):
+    def _get_gen_batch(self, batch: DataProto) -> DataProto:
+        # TODO: to be implemented
+        return batch
+
     def _validate(self):
-        for test_data, _ in self.val_dataloader:
-            test_batch = DataProto(non_tensor_batch={"input_prompts": np.array(test_data)})
+        data_source_lst = []
+        reward_extra_infos_dict: dict[str, list] = defaultdict(list)
+
+        # Lists to collect samples for the table
+        sample_inputs = []
+        sample_outputs = []
+        sample_gts = []
+        sample_scores = []
+        sample_turns = []
+        sample_uids = []
+
+        for test_data in self.val_dataloader:
+            test_batch = DataProto.from_single_dict(test_data)
 
             if "uid" not in test_batch.non_tensor_batch:
                 test_batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_batch.non_tensor_batch))], dtype=object
+                    [str(uuid.uuid4()) for _ in range(len(test_batch.non_tensor_batch["prompt"]))], dtype=object
                 )
 
             # repeat test batch
@@ -59,20 +71,97 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
                 repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
             )
 
+            # Store original inputs
+            sample_inputs.extend(test_batch.non_tensor_batch["uid"])
+            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+
+            ground_truths = [
+                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
+            ]
+            sample_gts.extend(ground_truths)
+
+            test_gen_batch = self._get_gen_batch(test_batch)
+
+            test_gen_batch.meta_info = {"validate": True, "global_steps": self.global_steps}
+            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
+
             if not self.async_rollout_mode:
-                test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_batch)
+                test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_gen_batch)
             else:
-                test_output_gen_batch = self.async_rollout_manager.generate_sequences(test_batch)
+                test_output_gen_batch = self.async_rollout_manager.generate_sequences(test_gen_batch)
+
+            print("validation generation end")
+
+            # Store generated outputs
+            output_images = test_output_gen_batch.batch["responses"]
+            sample_outputs.extend(output_images)
 
             # TODO: add reward evaluation for diffusion model validation
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
+            # evaluate using reward_function
+            if self.val_reward_fn is None:
+                raise ValueError("val_reward_fn must be provided for validation.")
+
+            result = self.val_reward_fn(test_batch, return_dict=True)
+            reward_tensor = result["reward_tensor"]
+            scores = reward_tensor.tolist()
+            sample_scores.extend(scores)
+
+            reward_extra_infos_dict["reward"].extend(scores)
+            if "reward_extra_info" in result:
+                for key, lst in result["reward_extra_info"].items():
+                    reward_extra_infos_dict[key].extend(lst)
+
+            # collect num_turns of each prompt
+            if "__num_turns__" in test_batch.non_tensor_batch:
+                sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
+
+            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
+        # dump generations
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        if val_data_dir:
+            self._dump_generations(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                gts=sample_gts,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+            )
+
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
+
+        data_sources = np.concatenate(data_source_lst, axis=0)
+
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
         metric_dict = {}
-        # TODO: for test only
-        metric_dict["val-aux/num_turns/min"] = 1.0
-        metric_dict["val-aux/num_turns/max"] = 1.0
-        metric_dict["val-aux/num_turns/mean"] = 1.0
+        for data_source, var2metric2val in data_src2var2metric2val.items():
+            core_var = "acc" if "acc" in var2metric2val else "reward"
+            for var_name, metric2val in var2metric2val.items():
+                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                for metric_name, metric_val in metric2val.items():
+                    if (
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
+                        and (f"@{n_max}" in metric_name)
+                    ):
+                        metric_sec = "val-core"
+                    else:
+                        metric_sec = "val-aux"
+                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
+                    metric_dict[pfx] = metric_val
+
+        if len(sample_turns) > 0:
+            sample_turns = np.concatenate(sample_turns)
+            metric_dict["val-aux/num_turns/min"] = sample_turns.min()
+            metric_dict["val-aux/num_turns/max"] = sample_turns.max()
+            metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
         return metric_dict
 
@@ -126,7 +215,7 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
         next_step_profile = False
 
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_data, _ in self.train_dataloader:
+            for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
 
@@ -136,11 +225,11 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
-                batch: DataProto = DataProto(non_tensor_batch={"input_prompts": np.array(batch_data)})
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.non_tensor_batch))], dtype=object
+                    [str(uuid.uuid4()) for _ in range(len(batch.non_tensor_batch["prompt"]))], dtype=object
                 )
 
                 gen_batch = batch
