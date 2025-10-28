@@ -29,8 +29,7 @@ from verl import DataProto
 from verl.utils.device import get_device_name
 from verl.utils.profiler import GPUMemoryLogger
 from verl.workers.config import DiffuserModelConfig, RolloutConfig
-
-from ..base import BaseRollout
+from verl.workers.rollout.base import BaseRollout
 
 __all__ = ["DiffusersRollout"]
 

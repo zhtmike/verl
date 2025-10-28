@@ -4,7 +4,7 @@ python3 -m verl.trainer.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo_fast \
     data.train_files=$HOME/dataset/ocr/train.txt \
     data.val_files=$HOME/dataset/ocr/test.txt \
-    data.train_batch_size=8 \
+    data.train_batch_size=2 \
     data.val_max_samples=8 \
     data.max_prompt_length=512 \
     data.filter_overlong_prompts=True \
@@ -25,7 +25,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=diffusers \
     actor_rollout_ref.rollout.gpu_memory_utilization=1.0 \
-    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \

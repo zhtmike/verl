@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from .base import BasePPOActor
+from .diffusers_actor import DiffusersPPOActor
 from .dp_actor import DataParallelPPOActor
 
-__all__ = ["BasePPOActor", "DataParallelPPOActor"]
+__all__ = ["BasePPOActor", "DataParallelPPOActor", "DiffusersPPOActor"]
