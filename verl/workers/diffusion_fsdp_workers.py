@@ -57,7 +57,7 @@ from verl.utils.profiler import DistProfiler, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.ray_utils import get_event_loop
-from verl.workers.config import DiffuserModelConfig, FSDPEngineConfig, RolloutConfig
+from verl.workers.config import DiffusersModelConfig, FSDPEngineConfig, RolloutConfig
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, get_sharding_strategy
 from verl.workers.rollout import get_rollout_class
@@ -87,7 +87,8 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
         from verl.utils.model import print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
-        # TODO: need refactor structure
+        # TODO (Mike): need refactor structure, this is worker module,
+        # we should avoid to import function from specific rollout
         from verl.workers.rollout.diffusers_rollout.utils import inject_SDE_scheduler_into_pipeline
 
         assert role in ["actor", "ref"]
@@ -111,7 +112,7 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            # TODO: how to pass the actor_model_config into the pipeline?
+            # TODO (Mike): how to pass the actor_model_config into the pipeline?
             pipeline = DiffusionPipeline.from_pretrained(
                 pretrained_model_name_or_path=local_path, torch_dtype=torch_dtype, device_map=get_device_name()
             )
@@ -129,17 +130,32 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
 
             if self._is_lora:
                 print("Applying LoRA to actor module")
-                # Convert config to regular Python types before creating PEFT model
-                lora_config = {
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    # TODO: make init_lora_weights configurable
-                    "init_lora_weights": "gaussian",
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                    "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
-                    "bias": "none",
-                }
-                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+
+                lora_adapter_path = self.config.model.get("lora_adapter_path")
+                if lora_adapter_path is not None:
+                    from peft import PeftModel
+
+                    print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
+
+                    # Copy adapter to local if needed
+                    local_adapter_path = copy_to_local(
+                        lora_adapter_path, use_shm=self.config.model.get("use_shm", False)
+                    )
+
+                    actor_module = PeftModel.from_pretrained(actor_module, local_adapter_path, is_trainable=True)
+                else:
+                    # Convert config to regular Python types before creating PEFT model
+                    lora_config = {
+                        "r": self.config.model.lora_rank,
+                        "lora_alpha": self.config.model.lora_alpha,
+                        # TODO (Mike): make init_lora_weights configurable
+                        "init_lora_weights": "gaussian",
+                        "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                        "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+                        # TODO (Mike): double check default bias value
+                        "bias": "none",
+                    }
+                    actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
 
         self.use_orig_params = fsdp_config.get("use_orig_params", False)
 
@@ -267,8 +283,8 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
     def _build_rollout(self, actor_rollout_module):
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: DiffuserModelConfig = omega_conf_to_dataclass(
-            self.config.model, dataclass_type=DiffuserModelConfig
+        model_config: DiffusersModelConfig = omega_conf_to_dataclass(
+            self.config.model, dataclass_type=DiffusersModelConfig
         )
         self.model_config = model_config
 
@@ -347,7 +363,6 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
         import_external_libs(self.config.model.get("external_lib", None))
 
         override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
-        use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_shm = self.config.model.get("use_shm", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
@@ -372,7 +387,6 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
-                use_remove_padding=use_remove_padding,
                 use_fused_kernels=use_fused_kernels,
                 enable_gradient_checkpointing=self.config.model.get("enable_gradient_checkpointing", False),
                 trust_remote_code=self.config.model.get("trust_remote_code", False),
@@ -396,7 +410,10 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
         if self._is_actor:
             actor_cfg = omega_conf_to_dataclass(self.config.actor)
             self.actor = DiffusersPPOActor(
-                config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
+                config=actor_cfg,
+                actor_module=self.actor_module_fsdp,
+                pipeline=self.actor_rollout_module,
+                actor_optimizer=self.actor_optimizer,
             )
 
         if self._is_rollout:
@@ -416,7 +433,6 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
                 fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
                 optim_config=None,
                 override_model_config=override_model_config,
-                use_remove_padding=use_remove_padding,
                 use_fused_kernels=use_fused_kernels,
                 trust_remote_code=self.config.model.get("trust_remote_code", False),
                 use_liger=self.config.model.get("use_liger", False),
@@ -424,9 +440,10 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
             )[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
-                self.config.ref.use_remove_padding = use_remove_padding
                 self.config.ref.use_fused_kernels = use_fused_kernels
-            self.ref_policy = DiffusersPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
+            self.ref_policy = DiffusersPPOActor(
+                config=self.config.ref, actor_module=self.ref_module_fsdp, pipeline=self.actor_rollout_module
+            )
 
         if self._is_actor:
             # TODO: support flopscounter

@@ -16,6 +16,7 @@
 import uuid
 from collections import defaultdict
 from pprint import pprint
+from typing import Optional
 
 import numpy as np
 import ray
@@ -24,25 +25,67 @@ from tqdm import tqdm
 
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.trainer.ppo.core_algos import agg_loss
+from verl.trainer.config import AlgoConfig
+from verl.trainer.ppo import core_algos
+from verl.trainer.ppo.core_algos import AdvantageEstimator
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
 )
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty, compute_advantage
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, apply_kl_penalty
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
 
 
+def compute_advantage(
+    data: DataProto,
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> DataProto:
+    """Compute advantage estimates for policy optimization.
+
+    This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
+    The advantage estimates are used to guide policy optimization in RL algorithms.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+        adv_estimator (AdvantageEstimator): The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
+        gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
+        lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
+        num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
+        norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in
+            GRPO. Defaults to True.
+        config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
+
+    Returns:
+        DataProto: The updated data with computed advantages and returns.
+    """
+    if adv_estimator == AdvantageEstimator.FLOW_GRPO:
+        # Call compute_grpo_outcome_advantage with parameters matching its definition
+        advantages, returns = core_algos.compute_flow_grpo_outcome_advantage(
+            instance_level_rewards=data.batch["instance_level_rewards"],
+            index=data.non_tensor_batch["uid"],
+            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+    else:
+        raise NotImplementedError
+    return data
+
+
 class RayDiffusionPPOTrainer(RayPPOTrainer):
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
-        # TODO: to be implemented
+        # TODO (Mike): to be implemented
         return batch
 
     def _validate(self):
@@ -95,7 +138,6 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
             output_images = test_output_gen_batch.batch["responses"]
             sample_outputs.extend(output_images)
 
-            # TODO: add reward evaluation for diffusion model validation
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
@@ -270,29 +312,7 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
-                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-                        old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
-                        metrics.update(old_log_prob_metrics)
-                        old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
-
-                        if "rollout_log_probs" in batch.batch.keys():
-                            # TODO: we may want to add diff of probs too.
-                            from verl.utils.debug.metrics import calculate_debug_metrics
-
-                            metrics.update(calculate_debug_metrics(batch))
-
-                    if self.use_reference_policy:
-                        # compute reference log_prob
-                        with marked_timer(str(Role.RefPolicy), timing_raw, color="olive"):
-                            if not self.ref_in_actor:
-                                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                            else:
-                                ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
-                            batch = batch.union(ref_log_prob)
 
                     # compute values
                     if self.use_critic:
@@ -303,7 +323,7 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
                         reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                        batch.batch["token_level_scores"] = reward_tensor
+                        batch.batch["instance_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
@@ -315,7 +335,7 @@ class RayDiffusionPPOTrainer(RayPPOTrainer):
                             )
                             metrics.update(kl_metrics)
                         else:
-                            batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
+                            batch.batch["instance_level_rewards"] = batch.batch["instance_level_scores"]
 
                         # Compute rollout importance sampling weights centrally (once per batch)
                         # This corrects for mismatch between rollout policy and training policy

@@ -49,6 +49,10 @@ class StableDiffusion3PipelineWithLogProbOutput(BaseOutput):
     all_latents: list[torch.FloatTensor]
     all_log_probs: list[torch.FloatTensor]
     all_timesteps: list[int]
+    prompt_embeds: torch.FloatTensor
+    pooled_prompt_embeds: torch.FloatTensor
+    negative_prompt_embeds: Optional[torch.FloatTensor] = None
+    negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None
 
 
 class StableDiffusion3PipelineWithLogProb(StableDiffusion3Pipeline):
@@ -332,9 +336,32 @@ class StableDiffusion3PipelineWithLogProb(StableDiffusion3Pipeline):
         # Offload all models
         self.maybe_free_model_hooks()
 
+        all_latents = torch.stack(all_latents, dim=1)
+        all_log_probs = torch.stack(all_log_probs, dim=1)
+        all_timesteps = torch.stack(all_timesteps).unsqueeze(0).expand(batch_size, -1)
+        if self.do_classifier_free_guidance:
+            prompt_embeds = prompt_embeds[:batch_size]
+            pooled_prompt_embeds = pooled_prompt_embeds[:batch_size]
+
         if not return_dict:
-            return (image, all_latents, all_log_probs, all_timesteps)
+            return (
+                image,
+                all_latents,
+                all_log_probs,
+                all_timesteps,
+                prompt_embeds,
+                pooled_prompt_embeds,
+                negative_prompt_embeds,
+                negative_pooled_prompt_embeds,
+            )
 
         return StableDiffusion3PipelineWithLogProbOutput(
-            images=image, all_latents=all_latents, all_log_probs=all_log_probs, all_timesteps=all_timesteps
+            images=image,
+            all_latents=all_latents,
+            all_log_probs=all_log_probs,
+            all_timesteps=all_timesteps,
+            prompt_embeds=prompt_embeds,
+            pooled_prompt_embeds=pooled_prompt_embeds,
+            negative_prompt_embeds=negative_prompt_embeds,
+            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
         )

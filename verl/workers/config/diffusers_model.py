@@ -20,11 +20,11 @@ from verl.base_config import BaseConfig
 from verl.utils.fs import copy_to_local
 from verl.utils.import_utils import import_external_libs
 
-__all__ = ["DiffuserModelConfig"]
+__all__ = ["DiffusersModelConfig"]
 
 
 @dataclass
-class DiffuserModelConfig(BaseConfig):
+class DiffusersModelConfig(BaseConfig):
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
     _mutable_fields = {
         "hf_config_path",
@@ -58,7 +58,10 @@ class DiffuserModelConfig(BaseConfig):
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
-    # TODO: in diffusers, these options are no longer used. Drop it later.
+    # path to pre-trained LoRA adapter to load for continued training
+    lora_adapter_path: Optional[str] = None
+
+    # TODO (Mike): in diffusers, these options are no longer used. Drop it later.
     tokenizer_path: Any = None
     trust_remote_code: Any = None
     custom_chat_template: Any = None

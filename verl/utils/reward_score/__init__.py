@@ -106,7 +106,7 @@ def default_compute_score(
     elif data_source in [
         "ocr",
     ]:
-        # TODO: temp use, change to API call of OCR later
+        # TODO (Mike): temp use, change to API call of OCR later
         from . import jpeg_imcompressibility
 
         res = jpeg_imcompressibility.compute_score(solution_str, ground_truth)

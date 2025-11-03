@@ -23,6 +23,7 @@ generate_config() {
     echo "# The file is usually only for reference and never used." >> "$tmp_header"
     echo "" >> "$tmp_header"
     
+    # TODO (Mike): this change is only for CI in MacOS, remove later
     python scripts/print_cfg.py --cfg job ${config_arg} > "$tmp_cfg"
     
     cat "$tmp_header" > "$target_cfg"
