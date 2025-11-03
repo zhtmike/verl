@@ -3,7 +3,7 @@ hydra:
     - file://verl/trainer/config
 
 defaults:
-  - ppo_trainer
+  - ppo_megatron_trainer
   - _self_
 
 async_training:

@@ -94,6 +94,7 @@ verl is fast with:
    :caption: Performance Tuning Guide
 
    perf/dpsk.md
+   perf/best_practices
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
@@ -137,6 +138,7 @@ verl is fast with:
    ascend_tutorial/ascend_quick_start.rst
    ascend_tutorial/ascend_profiling_zh.rst
    ascend_tutorial/ascend_profiling_en.rst
+   ascend_tutorial/dockerfile_build_guidance.rst
    ascend_tutorial/ascend_sglang_quick_start.rst
 
 .. toctree::

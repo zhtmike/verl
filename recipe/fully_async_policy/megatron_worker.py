@@ -1,5 +1,6 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright 2025 Meituan Ltd. and/or its affiliates
+# Copyright 2025 NVIDIA Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,18 +20,14 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
     get_torch_device,
 )
-from verl.utils.fsdp_utils import (
-    fsdp_version,
-)
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+from verl.utils.megatron_utils import per_tensor_generator
+from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -70,77 +67,58 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
-        params = self._get_actor_params() if self._is_actor else None
+        params_generator = self._get_actor_params_generator() if self._is_actor else None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
-
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor:
-                assert key in params
-                origin_data = params[key]
-                if hasattr(origin_data, "full_tensor"):
-                    origin_data = origin_data.full_tensor()
-                if torch.distributed.get_rank() == 0:
-                    tensor.copy_(origin_data)
+                weight_key, weight = next(params_generator)
+                assert key == weight_key
+                assert shape == weight.size()
+                assert dtype == weight.dtype
+
+            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+            if self._is_actor and torch.distributed.get_rank() == 0:
+                tensor.copy_(weight)
             from ray.util.collective import collective
 
             collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
-        get_torch_device().empty_cache()
 
 
 class DetachActorWorker(DetachNcclSync):
-    def _get_actor_params(self):
+    def _get_actor_params_generator(self):
         assert self._is_actor
-        params = self.actor_module_fsdp.state_dict()
-        from verl.utils.model import convert_weight_keys
+        if self.bridge is not None:
+            generator = self.bridge.export_weights(self.actor.actor_module)
+        else:
+            generator = per_tensor_generator(
+                self.actor.actor_module,
+                self.actor_model_config,
+                self.weight_converter,
+                self.tf_config,
+                self.layer_name_mapping,
+            )
 
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        )
-        return params
+        return generator
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get_actor_weights_info(self):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
             return self._weights_info
-        if fsdp_version(self.actor_module_fsdp) == 1:
-            from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
 
-            FSDP.set_state_dict_type(
-                self.actor_module_fsdp,
-                state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=ShardedStateDictConfig(),
-            )
-        params = self._get_actor_params()
+        params_generator = self._get_actor_params_generator()
         ret = []
-        for key, tensor in params.items():
+        for key, tensor in params_generator:
             ret.append((key, tensor.size(), tensor.dtype))
+
         self._weights_info = ret
         return ret
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_model_to_cpu(self, n):
-        if not hasattr(self, "cpu_saved_models"):
-            self.cpu_saved_models = {}
-        self.cpu_saved_models[n] = fsdp2_sharded_save_to_cpu(self.actor_module_fsdp)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def restore_model_from_cpu(self, n):
-        if n in self.cpu_saved_models:
-            cpu_sharded_state, global_spec = self.cpu_saved_models[n]
-            fsdp2_sharded_load_from_cpu(self.actor_module_fsdp, cpu_sharded_state, global_spec)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def clear_cpu_model(self, n):
-        if n in self.cpu_saved_models:
-            del self.cpu_saved_models[n]
 
 
 class DetachAsyncRolloutWorker(DetachNcclSync):
