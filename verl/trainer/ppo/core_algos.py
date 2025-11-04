@@ -1035,6 +1035,55 @@ def compute_policy_loss_vanilla(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
+@register_policy_loss("vanilla_diffusion")  # type: ignore[arg-type]
+def compute_policy_loss_vanilla_diffusion(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    t_step: int,
+    config: Optional[DictConfig | AlgoConfig] = None,
+) -> torch.Tensor:
+    """
+    Compute the clipped policy objective and related metrics for PPO.
+
+    Adapted from
+    https://github.com/yifan123/flow_grpo/blob/main/scripts/train_sd3_fast.py#L885
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        config: `(verl.trainer.config.ActorConfig)`:
+            config for the actor.
+    """
+
+    assert config is not None
+    assert not isinstance(config, AlgoConfig)
+    # TODO (Mike): add clip_max to ActorConfig
+    clip_max = config.get("clip_max", 5.0)
+    clip_ratio = config.clip_ratio
+
+    old_log_prob = old_log_prob[:, t_step]
+
+    advantages = torch.clamp(
+        advantages,
+        -clip_max,
+        clip_max,
+    )
+    ratio = torch.exp(log_prob - old_log_prob)
+    unclipped_loss = -advantages * ratio
+    clipped_loss = -advantages * torch.clamp(
+        ratio,
+        1.0 - clip_ratio,
+        1.0 + clip_ratio,
+    )
+    policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+    return policy_loss
+
+
 @register_policy_loss("gspo")
 def compute_policy_loss_gspo(
     old_log_prob: torch.Tensor,

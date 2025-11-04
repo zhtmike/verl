@@ -25,10 +25,13 @@ from typing import Optional
 import torch
 from diffusers import DiffusionPipeline
 from torch import nn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import get_policy_loss_fn
 from verl.utils.device import get_device_id, get_device_name
+from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.workers.actor import BasePPOActor
@@ -108,6 +111,27 @@ class DiffusersPPOActor(BasePPOActor):
 
         return log_probs, t_step
 
+    def _optimizer_step(self):
+        assert self.config.grad_clip is not None
+
+        if isinstance(self.actor_module, FSDP):
+            grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
+        elif isinstance(self.actor_module, FSDPModule):
+            grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
+        else:
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
+
+        if isinstance(grad_norm, DTensor):
+            grad_norm = grad_norm.full_tensor()
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
+            self.actor_optimizer.zero_grad()
+        else:
+            self.actor_optimizer.step()
+        return grad_norm
+
     @GPUMemoryLogger(role="diffusers actor", logger=logger)
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses"""
@@ -159,7 +183,7 @@ class DiffusersPPOActor(BasePPOActor):
 
                     loss_scale_factor = 1 / self.gradient_accumulation
 
-                    log_prob, _ = self._forward_micro_batch(model_inputs)
+                    log_prob, t_step = self._forward_micro_batch(model_inputs)
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
@@ -170,19 +194,18 @@ class DiffusersPPOActor(BasePPOActor):
                         else:
                             old_log_prob = model_inputs["old_log_probs"]
 
-                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla_diffusion")
 
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
 
                     # Compute policy loss (all functions return 4 values)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                    policy_loss = policy_loss_fn(
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
                         advantages=advantages,
+                        t_step=t_step,
                         config=self.config,
                     )
-
-                    policy_loss = pg_loss
 
                     if self.config.use_kl_loss:
                         raise NotImplementedError
@@ -192,10 +215,7 @@ class DiffusersPPOActor(BasePPOActor):
 
                     micro_batch_metrics.update(
                         {
-                            "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
-                            "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                            "actor/ppo_kl": ppo_kl.detach().item(),
-                            "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                            "actor/pg_loss": policy_loss.detach().item() * loss_scale_factor,
                         }
                     )
                     append_to_dict(metrics, micro_batch_metrics)

@@ -19,6 +19,7 @@ import logging
 import os
 import warnings
 
+import psutil
 import torch
 import torch.distributed
 from omegaconf import DictConfig, OmegaConf, open_dict
@@ -49,6 +50,7 @@ from verl.utils.fsdp_utils import (
     get_shard_placement_fn,
     init_fn,
     load_fsdp_model_to_gpu,
+    load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
@@ -454,6 +456,40 @@ class DiffusionActorRolloutRefWorker(ActorRolloutRefWorker):
                 lr_scheduler=self.actor_lr_scheduler,
                 checkpoint_config=self.config.actor.checkpoint,
             )
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @DistProfiler.annotate(color="red", role="actor_update")
+    def update_actor(self, data: DataProto):
+        assert self._is_actor
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        if self._is_offload_optimizer:
+            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=get_device_id())
+
+        data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
+
+        metrics = self.actor.update_policy(data=data)
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+
+        lr = self.actor_lr_scheduler.get_last_lr()[0]
+        metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
+        self.actor_lr_scheduler.step()
+
+        # TODO: here, we should return all metrics
+        output = DataProto(meta_info={"metrics": metrics})
+
+        output = output.to("cpu")
+
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            log_gpu_memory_usage("After offload actor model during update_actor", logger=logger)
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+            log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
+
+        return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
     @DistProfiler.annotate(color="red", role="rollout_generate")
