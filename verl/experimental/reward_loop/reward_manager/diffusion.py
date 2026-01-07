@@ -13,36 +13,38 @@
 # limitations under the License.
 
 import inspect
-from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.experimental.reward_loop.reward_manager import register
 from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score
 
+
 @register("diffusion")
 class DiffusionRewardManager(RewardManagerBase):
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, tokenizer=None, compute_score=None, reward_router_address=None):
+    def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         """Initialize reward manager.
 
         Args:
             config (DictConfig): YAML config.
+            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             compute_score (Callable, optional): Custom reward score function. Defaults to None.
             reward_router_address (str, optional): The address of the reward router service. Defaults to None.
+            reward_model_tokenizer (AutoTokenizer): Tokenizer for tokenize reward messages.
         """
 
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
         self.reward_router_address = reward_router_address
+        self.reward_model_tokenizer = reward_model_tokenizer
 
     async def run_single(self, data: DataProto) -> dict:
-
         assert len(data) == 1, "Only support single data item"
         data_item = data[0]
-        # prompt_str = data_item.non_tensor_batch["prompt"]
+        # prompt_str = self.tokenizer.decode(data_item.batch["prompts"], skip_special_tokens=True)
         response_image = data_item.batch["responses"]
         data_source = data_item.non_tensor_batch["data_source"]
         ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
@@ -59,6 +61,7 @@ class DiffusionRewardManager(RewardManagerBase):
         extra_reward_kwargs = (
             {
                 "reward_router_address": self.reward_router_address,
+                "reward_model_tokenizer": self.reward_model_tokenizer,
             }
             if self.reward_router_address is not None
             else {}
