@@ -15,11 +15,11 @@
 
 import os
 
+import numpy as np
 import ray
 import torch
 from hydra import compose, initialize_config_dir
 from PIL import Image
-import numpy as np
 
 from verl.experimental.reward_loop import DiffusionRewardLoopManager
 from verl.protocol import DataProto
@@ -28,19 +28,21 @@ from verl.utils import hf_tokenizer
 
 def create_data_samples(tokenizer) -> DataProto:
     images = ["assets/good.jpg", "assets/fair.jpg", "assets/poor.jpg", "assets/ocr.jpg"]
-    prompts = ['a good photo', 'a fair photo', 'a poor photo', 'a photo of displaying "OCR"']
-    pil_images = [np.array(Image.open(img)) for img in images]
+    prompts = ["a good photo", "a fair photo", "a poor photo", 'a photo of displaying "OCR"']
+    pil_images = [np.array(Image.open(img).convert("RGB").resize((512, 512))) for img in images]
     responses = [torch.tensor(img).permute(2, 0, 1) / 255.0 for img in pil_images]
     data_source = ["ocr"] * len(images)
     reward_info = [{"ground_truth": "OCR"}] * len(images)
-    extra_info = []
+    extra_info = [{}] * len(images)
 
-    prompts = torch.stack(prompts)
     responses = torch.stack(responses)
+    prompt_length = 1024
+    pad_token_id = tokenizer.pad_token_id
     prompt_ids = []
     for prompt in prompts:
         prompt_tokens = tokenizer.encode(prompt, tokenize=True)
-        prompt_ids.append(torch.tensor(prompt_tokens))
+        padded_prompt = [pad_token_id] * (prompt_length - len(prompt_tokens)) + prompt_tokens
+        prompt_ids.append(torch.tensor(padded_prompt))
     prompt_ids = torch.stack(prompt_ids)
 
     data = DataProto.from_dict(
@@ -83,7 +85,7 @@ def test_diffusion_reward_model_manager():
     config.reward_model.n_gpus_per_node = 8
     config.reward_model.nnodes = 1
     config.reward_model.model.path = reward_model_name
-    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm-omni")
+    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.reward_model.rollout.gpu_memory_utilization = 0.9
     config.reward_model.rollout.tensor_model_parallel_size = 2
     config.reward_model.rollout.skip_tokenizer_init = False
@@ -100,8 +102,9 @@ def test_diffusion_reward_model_manager():
     # 3. generate responses
     outputs = reward_loop_manager.compute_rm_score(data)
 
-    for idx, output in enumerate(outputs, strict=True):
+    for idx, output in enumerate(outputs):
         print(f"GRM Response {idx}:\n{output.non_tensor_batch['genrm_response']}\n")
+        print(f"Score:\n{output.non_tensor_batch['score']}\n")
         print("=" * 50 + "\n")
 
     ray.shutdown()

@@ -109,7 +109,7 @@ async def compute_score_ocr(
     ground_truth: str,
     extra_info: dict,
     reward_router_address: str,
-    reward_model_tokenizer: PreTrainedTokenizer,
+    reward_model_tokenizer: PreTrainedTokenizer = None,
 ):
     """Compute the reward score."""
     import base64
