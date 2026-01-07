@@ -77,7 +77,7 @@ device_name = get_device_name()
 @EngineRegistry.register(model_type="diffusion_model", backend=["fsdp", "fsdp2"], device=["cuda", "npu"])
 class DiffusersFSDPEngine(BaseEngine):
     """
-    Concrete Diffussers Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
+    Concrete Diffusers Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
@@ -398,7 +398,7 @@ class DiffusersFSDPEngine(BaseEngine):
 
         # Load base model with specified configuration and dtype
         module = self._build_module()
-        scheduler = self._build_scheduer()
+        scheduler = self._build_scheduler()
         # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:
             module = self._build_lora_module(module)

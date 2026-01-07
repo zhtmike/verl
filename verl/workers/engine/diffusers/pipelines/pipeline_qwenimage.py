@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional
 
@@ -21,7 +20,7 @@ import PIL.Image
 import torch
 from diffusers import QwenImagePipeline
 from diffusers.pipelines.qwenimage.pipeline_qwenimage import calculate_shift, retrieve_timesteps
-from diffusers.utils import BaseOutput, is_torch_xla_available
+from diffusers.utils import BaseOutput, is_torch_xla_available, logging
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -180,7 +179,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
             sde_window_range (`tuple[int, int]`, *optional*, defaults to (0, 5)):
                 The range of the SDE window start index. Only used if `sde_window_size` is provided.
             sde_type (`str`, *optional*, defaults to "sde"):
-                The type of SDE to use. Choose between "sde"
+                The type of SDE to use. Choose between "sde" and "cps".
 
         Examples:
 

@@ -92,7 +92,7 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
             prev_sample (`torch.FloatTensor`, *optional*):
                 The sample from the previous timestep. If not provided, it will be sampled inside the function.
             sde_type (`str`, *optional*, defaults to "sde"):
-                The type of SDE to use. Choose between "sde" and "cps
+                The type of SDE to use. Choose between "sde" and "cps".
 
         Returns:
             [`~schedulers.scheduling_flow_match_euler_discrete.FlowMatchSDEDiscreteSchedulerOutput`] or `tuple`:
