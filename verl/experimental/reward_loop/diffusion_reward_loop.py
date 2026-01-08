@@ -1,5 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2025 Huawei Technologies Co., Ltd
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ import asyncio
 import base64
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import aiohttp
@@ -65,6 +66,7 @@ class DiffusionRewardLoopWorker:
         self.config = config
         self.reward_router_address = reward_router_address
         self._init_reward_fn()
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
     def _init_reward_fn(self):
         input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
