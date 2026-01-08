@@ -1,5 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2026 Huawei Technologies Co., Ltd
+# Copyright 2025 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,8 +23,6 @@ from verl.utils.reward_score import default_compute_score
 
 @register("diffusion")
 class DiffusionRewardManager(RewardManagerBase):
-    _class_initialized = False
-
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         """Initialize reward manager.
 

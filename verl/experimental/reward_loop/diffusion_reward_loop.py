@@ -1,5 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright 2026 Huawei Technologies Co., Ltd
+# Copyright 2025 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class DiffusionRewardLoopWorker:
     def __init__(self, config: DictConfig, reward_router_address: str = None):
         """
-        RewardLoopWork can tackle reward computation:
+        RewardLoopWorker can tackle reward computation:
         (1) rule-based reward computation
         (2) reward model-based reward computation (both disrm and genrm)
         (3) high-flexible user-customized reward function (can access rm by posting requests to reward_model_router)
@@ -56,7 +56,7 @@ class DiffusionRewardLoopWorker:
         - if user-customized reward function is not provided:
             -> rm is not enabled: use default rule-based reward function
             -> rm is disrm: compute reward score using disrm
-            -> rm is genrm: raise error (user-costomized reward func must be provided)
+            -> rm is genrm: raise error (user-customized reward func must be provided)
 
         Args:
             config: DictConfig, the config for reward loop worker.
@@ -168,7 +168,7 @@ class DiffusionRewardLoopWorker:
 
     async def _preprocess_reward_inputs(self, data: DataProto) -> str:
         """
-        Prepeare discriminative reward model inputs: input prompt and output image.
+        Prepare discriminative reward model inputs: input prompt and output image.
         """
         assert len(data) == 1, "DiffusionRewardLoopWorker only support single data item"
         data_item = data[0]
@@ -181,8 +181,15 @@ class DiffusionRewardLoopWorker:
         prompt_str = self.input_tokenizer.decode(data_item.batch["prompts"], skip_special_tokens=True)
         response_image = data_item.batch["responses"]
 
+        # convert to PIL Image
+        if isinstance(response_image, torch.Tensor):
+            response_image = response_image.float().permute(1, 2, 0).cpu().numpy()
+        assert response_image.shape[-1] == 3, "must be in HWC format"
+        response_image = (response_image * 255).round().clip(0, 255).astype(np.uint8)
+        response_image = Image.fromarray(response_image)
+
         image_base64 = await self.pil_image_to_base64(response_image)
-        query = self.prepare_query(chat, prompt_str, image_base64)
+        query = self.prepare_query(prompt_str, image_base64)
 
         chat.append({"role": "assistant", "content": query})
 
@@ -216,7 +223,7 @@ class DiffusionRewardLoopWorker:
             output = await self._post_request(payloads, "v1/embeddings")
             rm_score = output["data"][-1]["embedding"][-1]
         else:
-            raise NotImplementedError(f"RewardLoopManager does not support {engine_name}")
+            raise NotImplementedError(f"DiffusionRewardLoopManager does not support {engine_name}")
 
         return {"reward_score": rm_score}
 
@@ -232,8 +239,9 @@ class DiffusionRewardLoopWorker:
         base64_image = f"data:image;base64,{encoded_image_text}"
         return base64_image
 
-    def prepare_query(self, chat, prompt, image_base64: str) -> list:
+    def prepare_query(self, prompt, image_base64: str) -> list:
         query = [
+            {"type": "text", "text": prompt},
             {
                 "type": "image_url",
                 "image_url": {"url": image_base64},
