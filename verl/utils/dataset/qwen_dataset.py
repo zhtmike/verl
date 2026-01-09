@@ -15,12 +15,14 @@
 import copy
 import logging
 import os
+import traceback
+from typing import Optional
 
 import datasets
 import numpy as np
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, ProcessorMixin
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class QwenDataset(Dataset):
         data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
+        processor: Optional[ProcessorMixin] = None,
         template: str = None,
         max_samples: int = -1,
         **kwargs,
@@ -51,11 +54,14 @@ class QwenDataset(Dataset):
         self.data_files = copy.deepcopy(data_files)
         self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
+        self.processor = processor
         self.max_samples = max_samples
         self.config = config
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/qwen"))
         self.prompt_key = config.get("prompt_key", "prompt")
+        self.image_key = config.get("image_key", "images")
+        self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
@@ -119,34 +125,111 @@ class QwenDataset(Dataset):
             self.dataframe = self.dataframe.select(indices.tolist())
             print(f"selected {self.max_samples} random samples out of {total}")
 
+        # filter out too long prompts
+        self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
+
         # apply chat template
         self.prompts = [self.prompt_template_encode.format(e) for e in self.dataframe[self.prompt_key]]
-
-        # check truncation
-        if self.truncation == "error":
-            for prompt in self.prompts:
-                if len(prompt) > self.max_prompt_length:
-                    raise RuntimeError(f"Prompt length {len(prompt)} is longer than {self.max_prompt_length}.")
-
-        # filter out too long prompts
-        self.prompts = self.maybe_filter_out_long_prompts(self.prompts)
 
         # tokenize prompts
         txt_tokens = self.tokenizer(
             self.prompts,
             max_length=self.tokenizer_max_length + self.prompt_template_encode_start_idx,
             padding=True,
-            truncation=True,
+            truncation=True if not self.filter_overlong_prompts else False,
             return_tensors="pt",
         )
         self.input_ids = txt_tokens.input_ids
         self.attention_masks = txt_tokens.attention_mask
 
-    def maybe_filter_out_long_prompts(self, prompts: list):
+    def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
         # filter out too long prompts
         if self.filter_overlong_prompts:
-            prompts = [x for x in prompts if len(x) <= self.max_prompt_length]
-        return prompts
+            tokenizer = self.tokenizer
+            processor = self.processor
+            prompt_key = self.prompt_key
+            image_key = self.image_key
+            video_key = self.video_key
+
+            if processor is not None:
+                from verl.utils.dataset.vision_utils import process_image, process_video
+
+                def doc2len(doc) -> int:
+                    try:
+                        messages = self._build_messages(doc)
+                        # pass tool schemas if available so the processor can format prompts
+                        apply_kwargs = dict(**self.apply_chat_template_kwargs)
+                        if self.tool_schemas is not None:
+                            apply_kwargs["tools"] = self.tool_schemas
+
+                        raw_prompt = self.processor.apply_chat_template(
+                            messages, add_generation_prompt=True, tokenize=False, **apply_kwargs
+                        )
+                        if image_key in doc and doc[image_key]:
+                            images = [
+                                process_image(image, image_patch_size=self.image_patch_size) for image in doc[image_key]
+                            ]
+                        else:
+                            images = None
+
+                        if video_key in doc and doc[video_key]:
+                            videos, video_metadata = zip(
+                                *[
+                                    process_video(
+                                        video, image_patch_size=self.image_patch_size, return_video_metadata=True
+                                    )
+                                    for video in doc[video_key]
+                                ],
+                                strict=True,
+                            )
+                            videos = list(videos)
+                            video_metadata = list(video_metadata)
+                            videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                        else:
+                            videos = None
+                            videos_kwargs = {}
+
+                        return len(
+                            processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs)[
+                                "input_ids"
+                            ][0]
+                        )
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
+
+            else:
+
+                def doc2len(doc) -> int:
+                    try:
+                        apply_kwargs = dict(**self.apply_chat_template_kwargs)
+                        if self.tool_schemas is not None:
+                            apply_kwargs["tools"] = self.tool_schemas
+
+                        return len(
+                            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True, **apply_kwargs)
+                        )
+                    except Exception:
+                        print("Error processing one of the samples, skipping...")
+                        traceback.print_exc()
+                        return self.max_prompt_length + 1
+
+            dataframe = dataframe.filter(
+                lambda doc: doc2len(doc) <= self.max_prompt_length,
+                num_proc=self.num_workers,
+                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
+            )
+
+            print(f"filter dataset len: {len(dataframe)}")
+        return dataframe
+
+    # def maybe_filter_out_long_prompts(self):
+    #     # filter out too long prompt tokens
+    #     if self.filter_overlong_prompts:
+    #         indices = [idx for idx, x in enumerate(self.input_ids) if len(x) <= self.max_prompt_length]
+    #         self.input_ids = self.input_ids[indices]
+    #         self.attention_masks = self.attention_masks[indices]
 
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")
