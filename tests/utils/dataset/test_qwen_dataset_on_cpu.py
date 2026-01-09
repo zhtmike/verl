@@ -89,3 +89,7 @@ def test_qwen_dataset_with_max_samples():
     )
     dataset = QwenDataset(data_files=local_path, tokenizer=tokenizer, config=config, max_samples=5)
     assert len(dataset) == 5
+
+    # test split
+    dataset_split = dataset.split(5)
+    assert len(dataset_split) == 5

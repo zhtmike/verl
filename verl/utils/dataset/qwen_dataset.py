@@ -64,6 +64,7 @@ class QwenDataset(Dataset):
         self.data_source = config.get("data_source")
         self.serialize_dataset = False
         self.use_shm = config.get("use_shm", False)
+        self.need_tools_kwargs = config.get("need_tools_kwargs", False)
 
         # NOTE: hard code for Qwen-Image
         self.tokenizer_max_length = 1024
@@ -74,11 +75,6 @@ class QwenDataset(Dataset):
         )
         self.prompt_template_encode = template or DEFAULT_TEMPLATE
         self.prompt_template_encode_start_idx = 34
-
-        if self.truncation == "error":
-            for prompt in self.prompts:
-                if len(prompt) > self.max_prompt_length:
-                    raise RuntimeError(f"Prompt length {len(prompt)} is longer than {self.max_prompt_length}.")
 
         self._download()
         self._read_files_and_tokenize()
@@ -125,6 +121,12 @@ class QwenDataset(Dataset):
 
         # apply chat template
         self.prompts = [self.prompt_template_encode.format(e) for e in self.dataframe[self.prompt_key]]
+
+        # check truncation
+        if self.truncation == "error":
+            for prompt in self.prompts:
+                if len(prompt) > self.max_prompt_length:
+                    raise RuntimeError(f"Prompt length {len(prompt)} is longer than {self.max_prompt_length}.")
 
         # filter out too long prompts
         self.prompts = self.maybe_filter_out_long_prompts(self.prompts)
