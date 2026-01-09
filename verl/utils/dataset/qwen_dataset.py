@@ -4,14 +4,13 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ============================================================================
 
 import logging
 import os
@@ -29,7 +28,7 @@ class QwenDataset(Dataset):
     Args:
         data_files (str): Path to the text file containing prompts.
         tokenizer (PreTrainedTokenizer): Tokenizer to tokenize the prompts.
-        config (OmegaConf): the data config.
+        config (DictConfig): the data config.
         template (str): The template to format the prompt.
         max_samples (int): Maximum number of samples to load. If -1, load all samples.
     """
@@ -104,8 +103,12 @@ class QwenDataset(Dataset):
         item = {
             "input_ids": self.input_ids[idx],
             "attention_mask": self.attention_masks[idx],
+            "raw_prompt": self.prompts[idx],
             "reward_model": {},
             "data_source": self.data_source,
+            "index": 0,
+            "tools_kwargs": {},
+            "interaction_kwargs": {},
         }
         ground_truth = self.get_ground_truth(self.prompts[idx], item["data_source"])
         if ground_truth is not None:

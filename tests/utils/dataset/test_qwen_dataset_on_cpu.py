@@ -13,6 +13,7 @@
 # limitations under the License.
 import os
 
+import pytest
 import torch
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
@@ -60,6 +61,20 @@ def test_qwen_dataset():
     assert len(data_proto) == 16
     assert "input_ids" in data_proto.batch
     assert "attention_mask" in data_proto.batch
+
+
+def test_qwen_dataset_with_max_prompt_length():
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/Qwen/Qwen-Image"), trust_remote_code=True)
+    local_path = get_ocr_data()
+    config = OmegaConf.create(
+        {
+            "max_prompt_length": 1,
+            "filter_overlong_prompts": True,
+            "data_source": "ocr",
+        }
+    )
+    with pytest.raises(NotImplementedError):
+        QwenDataset(data_files=local_path, tokenizer=tokenizer, config=config)
 
 
 def test_qwen_dataset_with_max_samples():
