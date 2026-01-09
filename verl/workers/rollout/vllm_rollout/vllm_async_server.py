@@ -20,6 +20,7 @@ import os
 from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
+from uuid import uuid4
 
 import cloudpickle as pickle
 import numpy as np
@@ -48,7 +49,12 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import (
+    get_free_port,
+    get_max_position_embeddings,
+    is_valid_ipv6_address,
+    run_unvicorn,
+)
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
@@ -163,7 +169,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         return
 
 
-class vLLMHttpServerBase:
+class vLLMHttpServer:
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -195,7 +201,7 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.model_config.hf_config.max_position_embeddings
+        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -658,28 +664,6 @@ class vLLMHttpServerBase:
             return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
-@ray.remote(num_cpus=1)
-class vLLMHttpServer(vLLMHttpServerBase):
-    """vLLM http server in single node, this is equivalent to launch server with command line:
-    ```
-    vllm serve --tensor-parallel-size=8 ...
-    ```
-    """
-
-    def __init__(
-        self,
-        config: RolloutConfig,
-        model_config: HFModelConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        gpus_per_node: int,
-        nnodes: int,
-    ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
-
-
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 
@@ -693,7 +677,7 @@ class vLLMReplica(RolloutReplica):
         is_reward_model: bool = False,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
-        self.server_class = vLLMHttpServer
+        self.server_class = ray.remote(vLLMHttpServer)
 
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
@@ -734,6 +718,7 @@ class vLLMReplica(RolloutReplica):
                 if not self.is_reward_model
                 else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
             )
+            name = name + f"_{uuid4().hex[:8]}"
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
