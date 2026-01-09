@@ -243,13 +243,6 @@ class QwenDataset(Dataset):
             print(f"filter dataset len: {len(dataframe)}")
         return dataframe
 
-    # def maybe_filter_out_long_prompts(self):
-    #     # filter out too long prompt tokens
-    #     if self.filter_overlong_prompts:
-    #         indices = [idx for idx, x in enumerate(self.input_ids) if len(x) <= self.max_prompt_length]
-    #         self.input_ids = self.input_ids[indices]
-    #         self.attention_masks = self.attention_masks[indices]
-
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")
         # resume dataframe if not it's serialized in data.pt
