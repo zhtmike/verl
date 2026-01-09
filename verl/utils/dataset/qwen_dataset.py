@@ -1,4 +1,3 @@
-
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,6 +15,7 @@
 
 import logging
 import os
+
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
@@ -33,8 +33,15 @@ class QwenDataset(Dataset):
         template (str): The template to format the prompt.
         max_samples (int): Maximum number of samples to load. If -1, load all samples.
     """
+
     def __init__(
-        self, data_files: str, tokenizer: PreTrainedTokenizer, config: DictConfig, template: str = None, max_samples: int = -1,  **kwargs
+        self,
+        data_files: str,
+        tokenizer: PreTrainedTokenizer,
+        config: DictConfig,
+        template: str = None,
+        max_samples: int = -1,
+        **kwargs,
     ):
         self.file_path = os.path.join(data_files)
         self.tokenizer = tokenizer
@@ -49,9 +56,7 @@ class QwenDataset(Dataset):
         if self.truncation == "error":
             for prompt in self.prompts:
                 if len(prompt) > self.max_prompt_length:
-                    raise RuntimeError(
-                        f"Prompt length {len(prompt)} is longer than {self.max_prompt_length}."
-                    )
+                    raise RuntimeError(f"Prompt length {len(prompt)} is longer than {self.max_prompt_length}.")
 
         if self.filter_overlong_prompts:
             self.prompts = [x for x in self.prompts if len(x) <= self.max_prompt_length]
@@ -61,19 +66,26 @@ class QwenDataset(Dataset):
 
         # NOTE: hard code for Qwen-Image for now
         self.tokenizer_max_length = 1024
-        self.prompt_template_encode = template or "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+        DEFAULT_TEMPLATE = (
+            "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, "
+            "spatial relationships of the objects and background:"
+            "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+        )
+        self.prompt_template_encode = template or DEFAULT_TEMPLATE
         self.prompt_template_encode_start_idx = 34
         # tokenize prompts
         txt = [self.prompt_template_encode.format(e) for e in self.prompts]
         txt_tokens = self.tokenizer(
-            txt, max_length=self.tokenizer_max_length + self.prompt_template_encode_start_idx, padding=True, truncation=True, return_tensors="pt"
+            txt,
+            max_length=self.tokenizer_max_length + self.prompt_template_encode_start_idx,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
         )
-        self.input_ids = txt_tokens.input_ids,
-        self.attention_masks = txt_tokens.attention_mask,
+        self.input_ids = txt_tokens.input_ids
+        self.attention_masks = txt_tokens.attention_mask
 
         self.data_source = config.data_source
-        self.reward_model_style = config.reward_model_style
-
 
     @staticmethod
     def get_ground_truth(prompt: str, data_source: str):
@@ -92,10 +104,10 @@ class QwenDataset(Dataset):
         item = {
             "input_ids": self.input_ids[idx],
             "attention_mask": self.attention_masks[idx],
-            "reward_model": {"style": self.reward_model_style},
+            "reward_model": {},
             "data_source": self.data_source,
         }
-        ground_truth = self.get_ground_truth(self.prompt[idx], item["data_source"])
+        ground_truth = self.get_ground_truth(self.prompts[idx], item["data_source"])
         if ground_truth is not None:
             item["reward_model"]["ground_truth"] = ground_truth
         return item
