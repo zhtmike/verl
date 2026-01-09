@@ -65,10 +65,29 @@ class QwenDataset(Dataset):
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
+
+        self.tool_config_path = config.get("tool_config_path", None)
+        self.tool_schemas = None
+        if self.tool_config_path:
+            try:
+                from verl.tools.utils.tool_registry import initialize_tools_from_config
+
+                tool_list = initialize_tools_from_config(self.tool_config_path)
+                # match ToolAgentLoop behaviour: model_dump to plain dicts
+                self.tool_schemas = [
+                    tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list
+                ]
+            except Exception as e:
+                logger.warning("Failed to initialize tools from %s: %s", self.tool_config_path, e)
+                self.tool_schemas = None
+
         self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
         self.data_source = config.get("data_source")
         self.serialize_dataset = False
+        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
+        self.num_workers = min(self.num_workers, os.cpu_count()) if self.num_workers is not None else None
         self.use_shm = config.get("use_shm", False)
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
 
