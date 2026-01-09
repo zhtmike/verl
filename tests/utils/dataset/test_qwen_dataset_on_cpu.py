@@ -73,7 +73,7 @@ def test_qwen_dataset_with_max_prompt_length():
             "data_source": "ocr",
         }
     )
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         QwenDataset(data_files=local_path, tokenizer=tokenizer, config=config)
 
 
