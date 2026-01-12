@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional
 
+import torch
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
@@ -41,6 +42,13 @@ class TokenOutput(BaseModel):
     """stop reason: 'completed', 'aborted', or None for unknown"""
     num_preempted: Optional[int] = None
     """number of preempted times for metric calculation"""
+
+
+class ImageOutput(BaseModel):
+    images: torch.Tensor
+    """generated images tensor"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
 
 
 class RolloutMode(Enum):
