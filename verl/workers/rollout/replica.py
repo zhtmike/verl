@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -277,6 +278,12 @@ def _load_vllm():
     return vLLMReplica
 
 
+def _load_vllm_omni():
+    from verl.workers.rollout.vllm_omni_rollout.vllm_omni_async_server import vLLMOmniReplica
+
+    return vLLMOmniReplica
+
+
 def _load_sglang():
     os.environ["SGLANG_USE_CPU_ENGINE"] = "1"
 
@@ -331,6 +338,7 @@ def _load_trtllm():
 RolloutReplicaRegistry.register("vllm", _load_vllm)
 RolloutReplicaRegistry.register("sglang", _load_sglang)
 RolloutReplicaRegistry.register("trtllm", _load_trtllm)
+RolloutReplicaRegistry.register("vllm-omni", _load_vllm_omni)
 
 
 # Original function for backward compatibility
