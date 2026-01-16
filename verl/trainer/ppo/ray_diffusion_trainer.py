@@ -57,7 +57,6 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
-from verl.utils.import_utils import load_class_from_fqn
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
 from verl.utils.rollout_skip import RolloutSkip
@@ -166,6 +165,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
+# TODO: modify based on actual rollout output
 def compute_response_mask(data: DataProto):
     """Compute the attention mask for the response part of the sequence.
 
@@ -502,6 +502,10 @@ class RayFlowGRPOTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
+        if "wandb" in self.config.trainer.logger:
+            import wandb
+
+            outputs = [wandb.Image(image.float(), file_type="jpg") for image in outputs]
         samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
@@ -585,7 +589,7 @@ class RayFlowGRPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = []
+        batch_keys_to_pop = ["input_ids", "attention_mask"]  # TODO: not sure if they are required as rollout input
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -650,10 +654,32 @@ class RayFlowGRPOTrainer:
                 else self.config.actor_rollout_ref.rollout.agent.num_workers
             )
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            if not self.async_rollout_mode:
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-            else:
-                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+            # if not self.async_rollout_mode:
+            #     test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            # else:
+            #     test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+            #######################
+            # TODO: debug use, need to remove later
+            from tensordict import TensorDict
+
+            batch_size = len(test_gen_batch_padded.non_tensor_batch["prompt"])
+            latent_dim = 16
+            generated_results = TensorDict(
+                {
+                    "responses": torch.randn((batch_size, 3, 512, 512)),
+                    "latents": torch.randn((batch_size, latent_dim)),
+                    "rollout_log_probs": torch.randn((batch_size,)),
+                    "timesteps": torch.randn((batch_size,)),
+                    "prompt_embeds": torch.randn((batch_size, latent_dim)),
+                    "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                    "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                    "negative_pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                },
+                batch_size=batch_size,
+            )
+            generated_results["input_ids"] = test_gen_batch_padded.batch["input_ids"]
+            test_output_gen_batch_padded = DataProto(batch=generated_results)
+            #######################
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -668,7 +694,7 @@ class RayFlowGRPOTrainer:
             test_batch.meta_info["validate"] = True
 
             # Store original inputs
-            input_ids = test_batch.batch["prompts"]
+            input_ids = test_batch.batch["input_ids"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
@@ -946,22 +972,23 @@ class RayFlowGRPOTrainer:
         self.async_rollout_mode = True
 
         # Support custom AgentLoopManager via config
-        manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
-        if manager_class_fqn:
-            AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
-        else:
-            from verl.experimental.agent_loop import AgentLoopManager
+        self.async_rollout_manager = None  # TODO: debug use, need to remove later
+        # manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+        # if manager_class_fqn:
+        #     AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
+        # else:
+        #     pass
 
-        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-        else:
-            rm_resource_pool = None
+        # if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+        #     rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        # else:
+        #     rm_resource_pool = None
 
-        self.async_rollout_manager = AgentLoopManager(
-            config=self.config,
-            worker_group=self.actor_rollout_wg,
-            rm_resource_pool=rm_resource_pool,
-        )
+        # self.async_rollout_manager = AgentLoopManager(
+        #     config=self.config,
+        #     worker_group=self.actor_rollout_wg,
+        #     rm_resource_pool=rm_resource_pool,
+        # )
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1394,13 +1421,35 @@ class RayFlowGRPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
-                        else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                        # if not self.async_rollout_mode:
+                        #     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
+                        # else:
+                        #     gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                        ##########################################
+                        # TODO: debug use, need to remove later
+                        from tensordict import TensorDict
 
-                        timing_raw.update(gen_batch_output.meta_info["timing"])
-                        gen_batch_output.meta_info.pop("timing", None)
+                        batch_size = len(gen_batch_output.non_tensor_batch["prompt"])
+                        latent_dim = 16
+                        generated_results = TensorDict(
+                            {
+                                "responses": torch.randn((batch_size, 3, 512, 512)),
+                                "latents": torch.randn((batch_size, latent_dim)),
+                                "rollout_log_probs": torch.randn((batch_size,)),
+                                "timesteps": torch.randn((batch_size,)),
+                                "prompt_embeds": torch.randn((batch_size, latent_dim)),
+                                "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                                "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                                "negative_pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                            },
+                            batch_size=batch_size,
+                        )
+                        gen_batch_output = DataProto(batch=generated_results)
+                        gen_batch_output.meta_info["cached_steps"] = gen_batch_output.batch["timesteps"].shape[1]
+                        # timing_raw.update(gen_batch_output.meta_info["timing"])
+                        # gen_batch_output.meta_info.pop("timing", None)
+                        ##########################################
+
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)

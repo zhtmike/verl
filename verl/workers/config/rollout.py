@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from omegaconf import MISSING
 
@@ -40,6 +40,11 @@ class SamplingConfig(BaseConfig):
     top_p: float = 1.0
     do_sample: bool = True
     n: int = 1
+
+    # diffusion use
+    noise_level: float = 0.0
+    num_inference_steps: int = 40
+    seed: int = 42
 
 
 @dataclass
@@ -218,6 +223,16 @@ class RolloutConfig(BaseConfig):
     enable_rollout_routing_replay: bool = False
 
     enable_sleep_mode: bool = True
+
+    # diffusion use
+    image_height: int = 512
+    image_width: int = 512
+    num_inference_steps: int = 10
+    noise_level: float = 0.7
+    guidance_scale: float = 4.5
+    sde_type: Literal["sde", "cps"] = "sde"
+    sde_window_size: Optional[int] = None
+    sde_window_range: Optional[int] = None
 
     def __post_init__(self):
         """Validate the rollout config"""

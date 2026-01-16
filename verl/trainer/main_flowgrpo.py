@@ -33,7 +33,7 @@ from verl.utils.device import auto_set_device, is_cuda_available
 from verl.utils.import_utils import load_extern_object
 
 
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
+@hydra.main(config_path="config", config_name="ppo_diffusion_trainer", version_base=None)
 def main(config):
     """Main entry point for PPO training with Hydra configuration management.
 
@@ -306,7 +306,8 @@ class TaskRunner:
         from verl.utils import hf_processor, hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=trust_remote_code)
+        tokenizer_path = config.actor_rollout_ref.model.get("tokenizer_path", os.path.join(local_path, "tokenizer"))
+        tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=trust_remote_code)
         # Used for multimodal LLM, could be None
         processor = hf_processor(
             os.path.join(local_path, "processor"), trust_remote_code=trust_remote_code, use_fast=True

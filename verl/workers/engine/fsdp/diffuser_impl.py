@@ -199,10 +199,10 @@ class DiffusersFSDPEngine(BaseEngine):
             warnings.simplefilter("ignore")
 
             module = AutoModel.from_pretrained(
-                pretrained_model_name_or_path=self.model_config.local_path,
+                self.model_config.local_path,
                 torch_dtype=torch_dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
-                **self.model_config.hf_config,
+                subfolder="transformer",
             )
 
             use_liger = self.model_config.use_liger
@@ -350,7 +350,9 @@ class DiffusersFSDPEngine(BaseEngine):
         from ...utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
 
         scheduler = FlowMatchSDEDiscreteScheduler.from_pretrained(
-            pretrained_model_name_or_path=self.model_config.local_path, subfolder="scheduler"
+            pretrained_model_name_or_path=self.model_config.local_path,
+            subfolder="scheduler",
+            use_dynamic_shifting=False,
         )
         scheduler.set_timesteps(self.model_config.num_inference_steps, device=get_device_name())
         return scheduler
@@ -507,7 +509,7 @@ class DiffusersFSDPEngine(BaseEngine):
         vae_scale_factor = tu.get_non_tensor_data(data=micro_batch, key="vae_scale_factor", default=8)
         img_shapes = [[(1, height // vae_scale_factor // 2, width // vae_scale_factor // 2)]]
 
-        if self.model_config.guidance_embeds:
+        if getattr(self.module.config, "guidance_embeds", False):
             guidance = torch.full([1], self._guidance_scale, dtype=torch.float32)
         else:
             guidance = None
