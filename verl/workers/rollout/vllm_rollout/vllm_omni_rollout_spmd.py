@@ -68,7 +68,7 @@ class vLLMOmniRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # TODO: the vllm-omni should able to feed tokenized ids directly
-        if (prompt := prompts.non_tensor_batch.get("prompt")) is None:
+        if (prompt := prompts.non_tensor_batch.get("prompt"), None) is None:
             idx = prompts.batch["input_ids"]
             prompt = self.tokenizer.batch_decode(idx, skip_special_tokens=True)
         else:

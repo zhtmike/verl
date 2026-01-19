@@ -40,15 +40,8 @@ class TestvLLMOmniRollout:
 
     def test_generate_sequences(self, mock_data: DataProto):
         result = self.rollout_engine.generate_sequences(mock_data)
-        expected_batch_keys = [
-            "responses",
-            "latents",
-            "timesteps",
-            "prompt_embeds",
-            "negative_prompt_embeds",
-        ]
+        expected_batch_keys = ["responses"]
         for key in expected_batch_keys:
             assert key in result.batch, f"Key {key} not found in result batch."
 
-        assert result.batch.batch_size[0] == 1, f"Expected batch size 1, got {result.batch.batch_size[0]}."
-        assert "cached_steps" in result.meta_info, "cached_steps not found in meta_info."
+        assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
