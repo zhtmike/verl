@@ -139,6 +139,7 @@ class HFModelConfig(BaseConfig):
     architectures: Optional[list[str]] = None
 
     mtp: MtpConfig = field(default_factory=MtpConfig)
+    custom_pipeline: Optional[str] = None
 
     def __post_init__(self):
         import_external_libs(self.external_lib)
