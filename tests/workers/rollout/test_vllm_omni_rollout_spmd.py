@@ -13,8 +13,9 @@
 # limitations under the License.
 import os
 
-import numpy as np
 import pytest
+from PIL import Image
+from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from verl.protocol import DataProto
 from verl.workers.config import HFModelConfig, RolloutConfig
@@ -23,39 +24,77 @@ from verl.workers.rollout.vllm_rollout.vllm_omni_rollout_spmd import vLLMOmniRol
 
 @pytest.fixture
 def mock_data() -> DataProto:
+    model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
+    tokenizer_path = os.path.join(model_path, "tokenizer")
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+
+    # NOTE: hard code for Qwen-Image
+    tokenizer_max_length = 1024
+    DEFAULT_TEMPLATE = (
+        "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, "
+        "spatial relationships of the objects and background:"
+        "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+    )
+    template = DEFAULT_TEMPLATE
+    drop_idx = 34
+
     test_prompt = "a photo of a cat"
     test_prompt_2 = "a photo of a dog"
-    data = DataProto(non_tensor_batch={"prompt": np.array([test_prompt, test_prompt_2])})
+
+    negative_test_prompt = ""
+
+    txt = [template.format(e) for e in [test_prompt, test_prompt_2]]
+    txt_tokens = tokenizer(
+        txt,
+        max_length=tokenizer_max_length + drop_idx,
+        padding=True,
+        truncation=True,
+        return_tensors="pt",
+    )
+
+    negative_txt = [template.format(e) for e in [negative_test_prompt, negative_test_prompt]]
+    negative_txt_tokens = tokenizer(
+        negative_txt,
+        max_length=tokenizer_max_length + drop_idx,
+        padding=True,
+        truncation=True,
+        return_tensors="pt",
+    )
+
+    data = DataProto.from_single_dict(
+        {
+            "prompt_ids": txt_tokens.input_ids,
+            "negative_prompt_ids": negative_txt_tokens.input_ids,
+            "prompt_mask": txt_tokens.attention_mask,
+            "negative_prompt_mask": negative_txt_tokens.attention_mask,
+        }
+    )
     return data
 
 
-class TestvLLMOmniRollout:
+class TestvLLMOmniRolloutCustomizedPipeline:
     def setup_class(self):
         model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
         tokenizer_path = os.path.join(model_path, "tokenizer")
 
         diffusion_config = RolloutConfig()
-        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
+
+        custom_pipeline = "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
+        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path, custom_pipeline=custom_pipeline)
+
         self.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
 
-    def test_generate_sequences(self, mock_data: DataProto):
-        result = self.rollout_engine.generate_sequences(mock_data)
+    @pytest.mark.asyncio
+    async def test_generate_sequences(self, mock_data: DataProto):
+        result = await self.rollout_engine.generate_sequences(mock_data)
         expected_batch_keys = ["responses"]
         for key in expected_batch_keys:
             assert key in result.batch, f"Key {key} not found in result batch."
 
         assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
+        images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
 
-
-class TestvLLMOmniRolloutCustomizedPipeline(TestvLLMOmniRollout):
-    def setup_class(self):
-        model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
-        tokenizer_path = os.path.join(model_path, "tokenizer")
-
-        diffusion_config = RolloutConfig()
-        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
-        model_config.custom_pipeline = os.path.abspath(
-            "./verl/workers/utils/vllm_omni_patch/pipelines/pipeline_qwenimage.py"
-        )
-
-        self.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
+        # TODO: for visualization, drop later
+        for i, image in enumerate(images_pil):
+            image_path = os.path.join(f"{i}.jpg")
+            Image.fromarray(image).save(image_path)

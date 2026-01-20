@@ -20,9 +20,8 @@ import torch
 import torchvision.transforms as T
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
-from transformers import AutoTokenizer, PreTrainedTokenizer
 from vllm.lora.request import LoRARequest
-from vllm_omni.entrypoints.omni_diffusion import OmniDiffusion
+from vllm_omni.entrypoints.async_omni_diffusion import AsyncOmniDiffusion
 
 from verl import DataProto
 from verl.third_party.vllm_omni import VLLM_OMNI_SLEEP_LEVEL
@@ -58,29 +57,25 @@ class vLLMOmniRollout(BaseRollout):
             else {}
         )
 
-        self.inference_engine = OmniDiffusion(model=model_path)
-        if (tokenizer_path := self.model_config.tokenizer_path) is None:
-            tokenizer_path = model_path
-        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        self._to_tensor = T.PILToTensor()
-
         if model_config.custom_pipeline is not None:
-            # TODO: inject custom pipeline here
-            ...
+            self.inference_engine = AsyncOmniDiffusion(
+                model=model_path, custom_pipeline_args={"pipeline_class": model_config.custom_pipeline}
+            )
+        else:
+            self.inference_engine = AsyncOmniDiffusion(model=model_path)
+
+        self._to_tensor = T.PILToTensor()
 
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
-    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # TODO: the vllm-omni should able to feed tokenized ids directly
-        if (prompt := prompts.non_tensor_batch.get("prompt"), None) is None:
-            idx = prompts.batch["input_ids"]
-            prompt = self.tokenizer.batch_decode(idx, skip_special_tokens=True)
-        else:
-            prompt = prompt.tolist()
+    async def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        batch_size = len(prompts)
 
-        batch_size = len(prompt)
+        prompt_ids_batch = prompts.batch["prompt_ids"]
+        negative_prompt_ids_batch = prompts.batch.get("negative_prompt_ids", None)
 
-        vllm_omni_inputs = prompt
+        prompt_mask_batch = prompts.batch["prompt_mask"]
+        negative_prompt_mask_batch = prompts.batch.get("negative_prompt_mask", None)
 
         lora_requests = [None] * batch_size
         if self.lora_kwargs:
@@ -93,8 +88,22 @@ class vLLMOmniRollout(BaseRollout):
         # users can customize different sampling_params at different run
         # TODO: currently vLLM-Omni do not accept batch inference
         outputs = [
-            self.inference_engine.generate(x, lora_request=lora_request)
-            for x, lora_request in zip(vllm_omni_inputs, lora_requests, strict=False)
+            await self.inference_engine.generate(
+                "",
+                prompt_ids=prompt_ids,
+                negative_prompt_ids=negative_prompt_ids,
+                prompt_mask=prompt_mask,
+                negative_prompt_mask=negative_prompt_mask,
+                lora_request=lora_request,
+            )
+            for prompt_ids, negative_prompt_ids, prompt_mask, negative_prompt_mask, lora_request in zip(
+                prompt_ids_batch,
+                negative_prompt_ids_batch,
+                prompt_mask_batch,
+                negative_prompt_mask_batch,
+                lora_requests,
+                strict=True,
+            )
         ]
 
         response = []

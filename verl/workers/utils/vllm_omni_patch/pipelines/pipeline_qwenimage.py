@@ -34,17 +34,20 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
 
     def _get_qwen_prompt_embeds(
         self,
-        prompt_ids: list[int] | list[list[int]] = None,
+        prompt_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         dtype: torch.dtype | None = None,
     ):
         dtype = dtype or self.text_encoder.dtype
 
-        prompt_ids = [prompt_ids] if isinstance(prompt_ids[0], int) else prompt_ids
+        prompt_ids = prompt_ids.unsqueeze(0) if prompt_ids.ndim == 1 else prompt_ids
+        attention_mask = (
+            attention_mask.unsqueeze(0) if attention_mask is not None and attention_mask.ndim == 1 else attention_mask
+        )
         drop_idx = self.prompt_template_encode_start_idx
         encoder_hidden_states = self.text_encoder(
-            input_ids=prompt_ids,
-            attention_mask=attention_mask,
+            input_ids=prompt_ids.to(self.device),
+            attention_mask=attention_mask.to(self.device),
             output_hidden_states=True,
         )
         hidden_states = encoder_hidden_states.hidden_states[-1]
@@ -65,15 +68,18 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
 
     def encode_prompt(
         self,
-        prompt_ids: list[int] | list[list[str]],
+        prompt_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         num_images_per_prompt: int = 1,
         prompt_embeds: torch.Tensor | None = None,
         prompt_embeds_mask: torch.Tensor | None = None,
         max_sequence_length: int = 1024,
     ):
-        prompt_ids = [prompt_ids] if isinstance(prompt_ids[0], int) else prompt_ids
-        batch_size = len(prompt_ids) if prompt_embeds is None else prompt_embeds.shape[0]
+        prompt_ids = prompt_ids.unsqueeze(0) if prompt_ids.ndim == 1 else prompt_ids
+        attention_mask = (
+            attention_mask.unsqueeze(0) if attention_mask is not None and attention_mask.ndim == 1 else attention_mask
+        )
+        batch_size = prompt_ids.shape[0] if prompt_embeds is None else prompt_embeds.shape[0]
 
         if prompt_embeds is None:
             prompt_embeds, prompt_embeds_mask = self._get_qwen_prompt_embeds(prompt_ids, attention_mask=attention_mask)
@@ -182,9 +188,9 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
     def forward(
         self,
         req: OmniDiffusionRequest,
-        prompt_ids: str | list[str] = "",
+        prompt_ids: torch.Tensor | None = None,
         prompt_mask: torch.Tensor | None = None,
-        negative_prompt_ids: str | list[str] = "",
+        negative_prompt_ids: torch.Tensor | None = None,
         negative_prompt_mask: torch.Tensor | None = None,
         true_cfg_scale: float = 4.0,
         height: int | None = None,
@@ -231,10 +237,8 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         self._current_timestep = None
         self._interrupt = False
 
-        if prompt_ids is not None and isinstance(prompt_ids, str):
-            batch_size = 1
-        elif prompt_ids is not None and isinstance(prompt_ids, list):
-            batch_size = len(prompt_ids)
+        if prompt_ids is not None:
+            batch_size = prompt_ids.shape[0]
         else:
             batch_size = prompt_embeds.shape[0]
 
