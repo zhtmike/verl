@@ -178,6 +178,7 @@ class DiffusersModelConfig(BaseConfig):
     local_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
     local_tokenizer_path: Optional[str] = None
+    model_type: str = "diffusion_model"
     tokenizer: Any = None
     processor: Any = None
 

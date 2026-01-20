@@ -5,7 +5,6 @@ hydra:
 defaults:
   - ppo_trainer
   - _self_
-
   # Model config.
   - override model@actor_rollout_ref.model: diffusion_model
 
@@ -16,20 +15,29 @@ data:
 
 
 actor_rollout_ref:
+  # Model config
+  model:
+    model_type: "diffusion_model"
+
   # Actor config
   actor:
+    # PPO clip ratio
+    clip_ratio: 0.0001
 
-    # inference steps
-    num_inference_steps: 10
+    # # Maximum absolute value for advantage clipping
+    clip_ratio_high: 5.0
 
-    # noise in SDE
-    noise_level: 0.7
+    # # inference steps
+    # num_inference_steps: 10
 
-    # guidance scale for classifier-free guidance
-    guidance_scale: 4.5
+    # # noise in SDE
+    # noise_level: 0.7
 
-    # SDE type during rollout
-    sde_type: "sde"
+    # # guidance scale for classifier-free guidance
+    # guidance_scale: 4.5
+
+    # # SDE type during rollout
+    # sde_type: "sde"
 
   # Rollout config
   rollout:

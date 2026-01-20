@@ -4,13 +4,13 @@ ENGINE=vllm-omni # TBD: determine the engine name
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-# TODO:
-# algorithm.adv_estimator=flow_grpo
-# actor_rollout_ref.actor.policy_loss.loss_mode=flow_grpo
+reward_path=tests/experimental/reward_loop/reward_fn.py
+reward_model_name=/models/Qwen/Qwen2.5-VL-7B-Instruct
+reward_router_address=localhost:9529
 
 
 python3 -m verl.trainer.main_flowgrpo \
-    algorithm.adv_estimator=grpo \
+    algorithm.adv_estimator=flow_grpo \
     data.train_files=$HOME/dataset/ocr/train.txt \
     data.val_files=$HOME/dataset/ocr/test.txt \
     data.train_batch_size=8 \
@@ -37,9 +37,10 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.actor.kl_loss_coef=0.04 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.model_dtype=float16 \
     actor_rollout_ref.actor.fsdp_config.dtype=float16 \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=1 \
-    actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
+    actor_rollout_ref.actor.policy_loss.loss_mode=flow_grpo \
     actor_rollout_ref.ref.fsdp_config.dtype=float16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
@@ -53,6 +54,14 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.guidance_scale=1.0 \
     actor_rollout_ref.rollout.noise_level=0.8 \
     actor_rollout_ref.rollout.sde_type="cps" \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    custom_reward_function.path=$reward_path \
+    custom_reward_function.name=compute_score_ocr \
+    reward_model.reward_manager=diffusion \
+    reward_model.model.path=reward_model_name \
+    reward_model.enable=False \
+    +reward_model.reward_kwargs.reward_router_address=${reward_router_address} \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name='flow_grpo' \

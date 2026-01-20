@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from omegaconf import MISSING
 
@@ -22,7 +22,7 @@ from verl.trainer.config import CheckpointConfig
 from verl.utils.profiler.config import ProfilerConfig
 
 from .engine import FSDPEngineConfig, McoreEngineConfig
-from .model import DiffusersModelConfig, HFModelConfig
+from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
 __all__ = [
@@ -31,7 +31,6 @@ __all__ = [
     "ActorConfig",
     "FSDPActorConfig",
     "McoreActorConfig",
-    "DiffusionFSDPActorConfig",
 ]
 
 
@@ -313,30 +312,3 @@ class FSDPActorConfig(ActorConfig):
                 raise ValueError(
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
-
-
-@dataclass
-class DiffusionFSDPActorConfig(ActorConfig):
-    """Configuration for FSDP actor models.
-
-    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
-
-    Args:
-        strategy (str): Training strategy set to 'fsdp' for Fully Sharded Data Parallel.
-        grad_clip (float): Gradient clipping threshold.
-        fsdp_config (dict[str, Any]): Configuration for FSDP settings.
-    """
-
-    strategy: str = "fsdp"
-    grad_clip: float = 1.0
-    fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
-    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    model_config: DiffusersModelConfig = field(default_factory=DiffusersModelConfig)
-    guidance_scale: float = 4.5
-    noise_level: float = 0.7
-    sde_type: Literal["sde", "cps"] = "sde"
-    num_inference_steps: int = 10
-
-    def __post_init__(self):
-        """Validate FSDP actor configuration parameters."""
-        super().__post_init__()
