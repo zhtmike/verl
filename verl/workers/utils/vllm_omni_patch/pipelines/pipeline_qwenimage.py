@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Any
+from typing import Any, Literal
 
 import torch
-from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
+from vllm_omni.diffusion.data import OmniDiffusionConfig
 from vllm_omni.diffusion.models.qwen_image import QwenImagePipeline
 
 from verl.workers.utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
+from verl.workers.utils.vllm_omni_patch.data import DiffusionOutput
 from verl.workers.utils.vllm_omni_patch.request import OmniDiffusionRequest
 
 
@@ -88,6 +89,96 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
 
         return prompt_embeds, prompt_embeds_mask
 
+    def diffuse(
+        self,
+        prompt_embeds,
+        prompt_embeds_mask,
+        negative_prompt_embeds,
+        negative_prompt_embeds_mask,
+        latents,
+        img_shapes,
+        txt_seq_lens,
+        negative_txt_seq_lens,
+        timesteps,
+        do_true_cfg,
+        guidance,
+        true_cfg_scale,
+        noise_level,
+        sde_window,
+        sde_type,
+        generator,
+    ):
+        all_latents = []
+        all_log_probs = []
+        all_timesteps = []
+        self.scheduler.set_begin_index(0)
+        for i, t in enumerate(timesteps):
+            if self.interrupt:
+                continue
+
+            if i < sde_window[0]:
+                cur_noise_level = 0.0
+            elif i == sde_window[0]:
+                cur_noise_level = noise_level
+                all_latents.append(latents)
+            elif i > sde_window[0] and i < sde_window[1]:
+                cur_noise_level = noise_level
+            else:
+                cur_noise_level = 0.0
+
+            self._current_timestep = t
+
+            # Broadcast timestep to match batch size
+            timestep = t.expand(latents.shape[0]).to(device=latents.device, dtype=latents.dtype)
+
+            # Forward pass for positive prompt (or unconditional if no CFG)
+            self.transformer.do_true_cfg = do_true_cfg
+            noise_pred = self.transformer(
+                hidden_states=latents,
+                timestep=timestep / 1000,
+                guidance=guidance,
+                encoder_hidden_states_mask=prompt_embeds_mask,
+                encoder_hidden_states=prompt_embeds,
+                img_shapes=img_shapes,
+                txt_seq_lens=txt_seq_lens,
+                attention_kwargs=self.attention_kwargs,
+                return_dict=False,
+            )[0]
+            # Forward pass for negative prompt (CFG)
+            if do_true_cfg:
+                neg_noise_pred = self.transformer(
+                    hidden_states=latents,
+                    timestep=timestep / 1000,
+                    guidance=guidance,
+                    encoder_hidden_states_mask=negative_prompt_embeds_mask,
+                    encoder_hidden_states=negative_prompt_embeds,
+                    img_shapes=img_shapes,
+                    txt_seq_lens=negative_txt_seq_lens,
+                    attention_kwargs=self.attention_kwargs,
+                    return_dict=False,
+                )[0]
+                comb_pred = neg_noise_pred + true_cfg_scale * (noise_pred - neg_noise_pred)
+                cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+                noise_norm = torch.norm(comb_pred, dim=-1, keepdim=True)
+                noise_pred = comb_pred * (cond_norm / noise_norm)
+            # compute the previous noisy sample x_t -> x_t-1
+            latents, log_prob, _, _ = self.scheduler.step(
+                noise_pred,
+                t,
+                latents,
+                generator=generator,
+                noise_level=cur_noise_level,
+                sde_type=sde_type,
+                return_dict=False,
+            )
+
+            if i >= sde_window[0] and i < sde_window[1]:
+                all_latents.append(latents)
+                all_log_probs.append(log_prob)
+                all_timesteps.append(t)
+
+        return latents, all_latents, all_log_probs, all_timesteps
+
     def forward(
         self,
         req: OmniDiffusionRequest,
@@ -112,6 +203,10 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         attention_kwargs: dict[str, Any] | None = None,
         callback_on_step_end_tensor_inputs: tuple[str, ...] = ("latents",),
         max_sequence_length: int = 512,
+        noise_level: float = 0.7,
+        sde_window_size: int | None = None,
+        sde_window_range: tuple[int, int] = (0, 5),
+        sde_type: Literal["sde", "cps"] = "sde",
     ) -> DiffusionOutput:
         # # TODO: only support single prompt now
         # if req.prompt is not None:
@@ -197,9 +292,21 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         negative_txt_seq_lens = (
             negative_prompt_embeds_mask.sum(dim=1).tolist() if negative_prompt_embeds_mask is not None else None
         )
-        # print inputp params
 
-        latents = self.diffuse(
+        if sde_window_size is not None:
+            start = torch.randint(
+                sde_window_range[0],
+                sde_window_range[1] - sde_window_size + 1,
+                (1,),
+                generator=generator,
+                device=self.device,
+            ).item()
+            end = start + sde_window_size
+            sde_window = (start, end)
+        else:
+            sde_window = (0, len(timesteps) - 1)
+
+        latents, all_latents, all_log_probs, all_timesteps = self.diffuse(
             prompt_embeds,
             prompt_embeds_mask,
             negative_prompt_embeds,
@@ -212,6 +319,10 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
             do_true_cfg,
             guidance,
             true_cfg_scale,
+            noise_level,
+            sde_window,
+            sde_type,
+            generator,
         )
 
         self._current_timestep = None
@@ -231,4 +342,13 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
             latents = latents / latents_std + latents_mean
             image = self.vae.decode(latents, return_dict=False)[0][:, :, 0]
 
-        return DiffusionOutput(output=image)
+        return DiffusionOutput(
+            output=image,
+            all_latents=all_latents,
+            all_log_probs=all_log_probs,
+            all_timesteps=all_timesteps,
+            prompt_embeds=prompt_embeds,
+            prompt_embeds_mask=prompt_embeds_mask,
+            negative_prompt_embeds=negative_prompt_embeds,
+            negative_prompt_embeds_mask=negative_prompt_embeds_mask,
+        )
