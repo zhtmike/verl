@@ -292,6 +292,7 @@ actor_rollout_ref:
     use_shm: false
     trust_remote_code: false
     custom_chat_template: null
+    custom_pipeline: null
     external_lib: null
     override_config: {}
     enable_gradient_checkpointing: true

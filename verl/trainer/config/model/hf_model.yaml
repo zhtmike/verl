@@ -24,6 +24,9 @@ trust_remote_code: False
 # custom chat template for the model
 custom_chat_template: null
 
+# custom pipeline for the model
+custom_pipeline: null
+
 # whether to use external libs for the model
 external_lib: null
 

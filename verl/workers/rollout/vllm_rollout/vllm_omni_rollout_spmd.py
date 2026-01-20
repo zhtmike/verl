@@ -64,6 +64,10 @@ class vLLMOmniRollout(BaseRollout):
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         self._to_tensor = T.PILToTensor()
 
+        if model_config.custom_pipeline is not None:
+            # TODO: inject custom pipeline here
+            ...
+
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:

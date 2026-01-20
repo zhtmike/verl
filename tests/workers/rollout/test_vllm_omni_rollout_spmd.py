@@ -45,3 +45,17 @@ class TestvLLMOmniRollout:
             assert key in result.batch, f"Key {key} not found in result batch."
 
         assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
+
+
+class TestvLLMOmniRolloutCustomizedPipeline(TestvLLMOmniRollout):
+    def setup_class(self):
+        model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
+        tokenizer_path = os.path.join(model_path, "tokenizer")
+
+        diffusion_config = RolloutConfig()
+        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
+        model_config.custom_pipeline = os.path.abspath(
+            "./verl/workers/utils/vllm_omni_patch/pipelines/pipeline_qwenimage.py"
+        )
+
+        self.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
