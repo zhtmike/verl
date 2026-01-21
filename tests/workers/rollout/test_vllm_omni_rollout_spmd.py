@@ -41,8 +41,6 @@ def mock_data() -> DataProto:
     test_prompt = "a photo of a cat"
     test_prompt_2 = "a photo of a dog"
 
-    negative_test_prompt = ""
-
     txt = [template.format(e) for e in [test_prompt, test_prompt_2]]
     txt_tokens = tokenizer(
         txt,
@@ -52,28 +50,42 @@ def mock_data() -> DataProto:
         return_tensors="pt",
     )
 
-    negative_txt = [template.format(e) for e in [negative_test_prompt, negative_test_prompt]]
-    negative_txt_tokens = tokenizer(
-        negative_txt,
-        max_length=tokenizer_max_length + drop_idx,
-        padding=True,
-        truncation=True,
-        return_tensors="pt",
-    )
-
-    data = DataProto.from_single_dict(
-        {
-            "prompt_ids": txt_tokens.input_ids,
-            "negative_prompt_ids": negative_txt_tokens.input_ids,
-            "prompt_mask": txt_tokens.attention_mask,
-            "negative_prompt_mask": negative_txt_tokens.attention_mask,
-        }
-    )
+    data = DataProto.from_single_dict({"prompt_ids": txt_tokens.input_ids, "prompt_mask": txt_tokens.attention_mask})
     return data
 
 
+class TestvLLMOmniRollout:
+    @classmethod
+    def setup_class(cls):
+        model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
+        tokenizer_path = os.path.join(model_path, "tokenizer")
+
+        diffusion_config = RolloutConfig()
+        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
+
+        cls.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
+        cls._prefix = "origin_"
+
+    @pytest.mark.skip
+    @pytest.mark.asyncio
+    async def test_generate_sequences(self, mock_data: DataProto):
+        result = await self.rollout_engine.generate_sequences(mock_data)
+        expected_batch_keys = ["responses"]
+        for key in expected_batch_keys:
+            assert key in result.batch, f"Key {key} not found in result batch."
+
+        assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
+        images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
+
+        # TODO: for visualization, drop later
+        for i, image in enumerate(images_pil):
+            image_path = os.path.join(f"{self._prefix}{i}.jpg")
+            Image.fromarray(image).save(image_path)
+
+
 class TestvLLMOmniRolloutCustomizedPipeline:
-    def setup_class(self):
+    @classmethod
+    def setup_class(cls):
         model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
         tokenizer_path = os.path.join(model_path, "tokenizer")
 
@@ -82,7 +94,8 @@ class TestvLLMOmniRolloutCustomizedPipeline:
         custom_pipeline = "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
         model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path, custom_pipeline=custom_pipeline)
 
-        self.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
+        cls.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
+        cls._prefix = "custom_"
 
     @pytest.mark.asyncio
     async def test_generate_sequences(self, mock_data: DataProto):
@@ -96,5 +109,5 @@ class TestvLLMOmniRolloutCustomizedPipeline:
 
         # TODO: for visualization, drop later
         for i, image in enumerate(images_pil):
-            image_path = os.path.join(f"{i}.jpg")
+            image_path = os.path.join(f"{self._prefix}{i}.jpg")
             Image.fromarray(image).save(image_path)
