@@ -7,7 +7,6 @@ REWARD_ENGINE=vllm
 
 reward_path=tests/experimental/reward_loop/reward_fn.py
 reward_model_name=/models/Qwen/Qwen2.5-VL-7B-Instruct
-reward_router_address=localhost:9529
 
 
 python3 -m verl.trainer.main_flowgrpo \
