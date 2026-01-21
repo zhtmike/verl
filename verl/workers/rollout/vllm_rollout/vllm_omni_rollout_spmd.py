@@ -84,9 +84,9 @@ class vLLMOmniRollout(BaseRollout):
         negative_prompt_mask_batch = prompts.batch.get("negative_prompt_mask", [None] * batch_size)
 
         if self.model_config.custom_pipeline is None:
-            prompts = self.tokenizer.batch_decode(prompt_ids_batch, skip_special_tokens=True)
+            raw_prompts = self.tokenizer.batch_decode(prompt_ids_batch, skip_special_tokens=True)
         else:
-            prompts = [None] * batch_size
+            raw_prompts = [None] * batch_size
 
         lora_requests = [None] * batch_size
         if self.lora_kwargs:
@@ -100,15 +100,15 @@ class vLLMOmniRollout(BaseRollout):
         # TODO: currently vLLM-Omni do not accept batch inference
         outputs = [
             await self.inference_engine.generate(
-                prompt,
+                raw_prompt,
                 prompt_ids=prompt_ids,
                 negative_prompt_ids=negative_prompt_ids,
                 prompt_mask=prompt_mask,
                 negative_prompt_mask=negative_prompt_mask,
                 lora_request=lora_request,
             )
-            for prompt, prompt_ids, negative_prompt_ids, prompt_mask, negative_prompt_mask, lora_request in zip(
-                prompts,
+            for raw_prompt, prompt_ids, negative_prompt_ids, prompt_mask, negative_prompt_mask, lora_request in zip(
+                raw_prompts,
                 prompt_ids_batch,
                 negative_prompt_ids_batch,
                 prompt_mask_batch,

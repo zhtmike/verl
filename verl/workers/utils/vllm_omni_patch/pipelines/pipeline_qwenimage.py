@@ -238,7 +238,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         self._interrupt = False
 
         if prompt_ids is not None:
-            batch_size = prompt_ids.shape[0]
+            batch_size = prompt_ids.shape[0] if prompt_ids.ndim == 2 else 1
         else:
             batch_size = prompt_embeds.shape[0]
 

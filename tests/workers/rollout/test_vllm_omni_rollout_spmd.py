@@ -40,6 +40,7 @@ def mock_data() -> DataProto:
 
     test_prompt = "a photo of a cat"
     test_prompt_2 = "a photo of a dog"
+    negative_prompt = ""
 
     txt = [template.format(e) for e in [test_prompt, test_prompt_2]]
     txt_tokens = tokenizer(
@@ -50,7 +51,23 @@ def mock_data() -> DataProto:
         return_tensors="pt",
     )
 
-    data = DataProto.from_single_dict({"prompt_ids": txt_tokens.input_ids, "prompt_mask": txt_tokens.attention_mask})
+    negative_txt = [template.format(e) for e in [negative_prompt, negative_prompt]]
+    negative_txt_tokens = tokenizer(
+        negative_txt,
+        max_length=tokenizer_max_length + drop_idx,
+        padding=True,
+        truncation=True,
+        return_tensors="pt",
+    )
+
+    data = DataProto.from_single_dict(
+        {
+            "prompt_ids": txt_tokens.input_ids,
+            "prompt_mask": txt_tokens.attention_mask,
+            "negative_prompt_ids": negative_txt_tokens.input_ids,
+            "negative_prompt_mask": negative_txt_tokens.attention_mask,
+        }
+    )
     return data
 
 
