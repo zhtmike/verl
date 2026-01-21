@@ -1,6 +1,7 @@
 # Qwen-Image lora, vllm-omni rollout
 set -x
 ENGINE=vllm-omni # TBD: determine the engine name
+REWARD_ENGINE=vllm
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
@@ -59,8 +60,11 @@ python3 -m verl.trainer.main_flowgrpo \
     custom_reward_function.path=$reward_path \
     custom_reward_function.name=compute_score_ocr \
     reward_model.reward_manager=diffusion \
-    reward_model.model.path=reward_model_name \
-    reward_model.enable=False \
+    reward_model.model.path=$reward_model_name \
+    reward_model.enable=True \
+    reward_model.rollout.name=$REWARD_ENGINE \
+    reward_model.enable_resouece_pool=False \
+    reward_model.use_reward_loop=True \
     +reward_model.reward_kwargs.reward_router_address=${reward_router_address} \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \

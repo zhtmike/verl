@@ -69,7 +69,10 @@ class DiffusionRewardLoopWorker:
         self._executor = ThreadPoolExecutor(max_workers=4)
 
     def _init_reward_fn(self):
-        input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
+        tokenizer_path = self.config.actor_rollout_ref.model.get(
+            "tokenizer_path", os.path.join(self.config.actor_rollout_ref.model.path, "tokenizer")
+        )
+        input_tokenizer_local_path = copy_to_local(tokenizer_path)
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
         self.reward_model_tokenizer = None
         if self.config.reward_model.enable:
@@ -303,7 +306,7 @@ class DiffusionRewardLoopManager:
 
         # compute rm score
         scores = [item["reward_score"] for item in outputs_flat]
-        rm_scores = torch.tensor(scores, dtype=torch.float32)
+        rm_scores = torch.tensor(scores, dtype=torch.float32).unsqueeze(-1)
         batch = TensorDict({"rm_scores": rm_scores}, batch_size=len(data))
 
         reward_extra_infos = [output.get("reward_extra_info", {}) for output in outputs_flat]

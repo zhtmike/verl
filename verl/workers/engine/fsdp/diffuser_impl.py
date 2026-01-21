@@ -63,9 +63,8 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import BaseEngine, EngineRegistry
+from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
 from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
-from .transformer_impl import EngineEvalModeCtx, EngineTrainModeCtx
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -90,7 +89,7 @@ class DiffusersFSDPEngine(BaseEngine):
         checkpoint_config: CheckpointConfig,
     ):
         """
-        Initialize the FSDPEngine.
+        Initialize the DiffusersFSDPEngine.
 
         Sets up distributed device meshes, LoRA, and offload policies based on config.
 
@@ -755,3 +754,45 @@ class DiffusersFSDPEngine(BaseEngine):
                 for name, param in params.items()
             )
         return per_tensor_param, peft_config
+
+
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: DiffusersFSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="eval", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if self.engine.engine_config.fsdp_size > 1:
+            if fsdp_version(self.engine.module) == 1:
+                self.engine.module._handle.reshard(True)
+            elif fsdp_version(self.engine.module) == 2:
+                self.engine.module.reshard()
+
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: DiffusersFSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="train", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.optimizer_zero_grad()
+        super().__exit__(exc_type, exc_value, traceback)

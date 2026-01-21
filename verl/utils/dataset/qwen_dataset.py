@@ -351,7 +351,7 @@ class QwenDataset(Dataset):
 
         # add reward related non-tensor inputs
         row_dict["raw_prompt"] = self.prompts[idx]
-        row_dict["reward_model"] = {}
+        row_dict["reward_model"] = {"style": "model"}
         row_dict["data_source"] = self.data_source
         ground_truth = self.get_ground_truth(row_dict["raw_prompt"], row_dict["data_source"])
         if ground_truth is not None:

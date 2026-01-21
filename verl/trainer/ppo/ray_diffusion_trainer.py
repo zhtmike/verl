@@ -165,7 +165,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-# TODO: modify based on actual rollout output
+# TODO: (susan) modify based on actual rollout output
 def compute_response_mask(data: DataProto):
     """Compute the attention mask for the response part of the sequence.
 
@@ -179,7 +179,7 @@ def compute_response_mask(data: DataProto):
         torch.Tensor: The attention mask for the response tokens.
     """
     responses = data.batch["responses"]
-    response_length = responses.size(1)
+    response_length = responses.size(2) * responses.size(3)
     attention_mask = data.batch["attention_mask"]
     return attention_mask[:, -response_length:]
 
@@ -589,7 +589,10 @@ class RayFlowGRPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = ["input_ids", "attention_mask"]  # TODO: not sure if they are required as rollout input
+        batch_keys_to_pop = [
+            "input_ids",
+            "attention_mask",
+        ]  # TODO: (susan) not sure if they are required as rollout input
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -628,8 +631,9 @@ class RayFlowGRPOTrainer:
             )
 
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
-                return {}
+            # TODO: (susan) debug use, uncomment later
+            # if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+            #     return {}
 
             ground_truths = [
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
@@ -659,7 +663,7 @@ class RayFlowGRPOTrainer:
             # else:
             #     test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
             #######################
-            # TODO: debug use, need to remove later
+            # TODO: (susan) debug use, need to remove later
             from tensordict import TensorDict
 
             batch_size = len(test_gen_batch_padded.non_tensor_batch["prompt"])
@@ -669,7 +673,12 @@ class RayFlowGRPOTrainer:
                     "responses": torch.randn((batch_size, 3, 512, 512)),
                     "latents": torch.randn((batch_size, latent_dim)),
                     "rollout_log_probs": torch.randn((batch_size,)),
-                    "timesteps": torch.randn((batch_size,)),
+                    "timesteps": torch.randn(
+                        (
+                            batch_size,
+                            40,
+                        )
+                    ),
                     "prompt_embeds": torch.randn((batch_size, latent_dim)),
                     "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
                     "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
@@ -701,6 +710,12 @@ class RayFlowGRPOTrainer:
             sample_uids.extend(test_batch.non_tensor_batch["uid"])
 
             # evaluate using reward_function
+            #########################
+            # TODO: (susan) debug use, mock roulout with rm_scores output, need to remove later
+            if self.use_reward_loop:
+                reward_tensor = self.reward_loop_manager.compute_rm_score(test_batch)
+                test_batch = test_batch.union(reward_tensor)
+            #########################
             result = self._compute_or_extract_reward(test_batch, reward_fn=self.val_reward_fn, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -890,11 +905,11 @@ class RayFlowGRPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward_loop import RewardLoopManager
+                from verl.experimental.reward_loop import DiffusionRewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-                self.reward_loop_manager = RewardLoopManager(
+                self.reward_loop_manager = DiffusionRewardLoopManager(
                     config=self.config,
                     rm_resource_pool=resource_pool,
                 )
@@ -1158,6 +1173,7 @@ class RayFlowGRPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
+    # TODO: (susan) may reorder based on total steps?
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
@@ -1361,7 +1377,8 @@ class RayFlowGRPOTrainer:
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+        # if self.val_reward_fn is not None and  # TODO:(susan) debug use, uncomment later
+        if self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
@@ -1431,12 +1448,13 @@ class RayFlowGRPOTrainer:
 
                         batch_size = len(gen_batch_output.non_tensor_batch["prompt"])
                         latent_dim = 16
+                        cached_steps = 40
                         generated_results = TensorDict(
                             {
                                 "responses": torch.randn((batch_size, 3, 512, 512)),
                                 "latents": torch.randn((batch_size, latent_dim)),
                                 "rollout_log_probs": torch.randn((batch_size,)),
-                                "timesteps": torch.randn((batch_size,)),
+                                "timesteps": torch.randn((batch_size, cached_steps)),
                                 "prompt_embeds": torch.randn((batch_size, latent_dim)),
                                 "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
                                 "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
@@ -1460,14 +1478,15 @@ class RayFlowGRPOTrainer:
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
                     # but might affect the loss calculation (due to the change of mini-batching).
-                    if self.config.trainer.balance_batch:
-                        self._balance_batch(batch, metrics=metrics)
+                    # TODO: (susan)
+                    # if self.config.trainer.balance_batch:
+                    #     self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                     # get images_seqlens
                     images_seqlens_all = []
-                    for multi_modal_input in batch.non_tensor_batch["multi_modal_inputs"]:
+                    for multi_modal_input in batch.non_tensor_batch.get("multi_modal_inputs", []):
                         if "image_grid_thw" not in multi_modal_input.keys():
                             continue
                         images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
@@ -1599,8 +1618,8 @@ class RayFlowGRPOTrainer:
 
                 # validate
                 if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
+                    # self.val_reward_fn is not None # TODO:(susan) debug use, uncomment later
+                    self.config.trainer.test_freq > 0
                     and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
