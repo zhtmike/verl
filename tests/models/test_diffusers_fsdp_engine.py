@@ -54,7 +54,7 @@ def create_training_config(model_type, strategy, device_count, model):
                     "tokenizer_path=" + tokenizer_path,
                 ],
             )
-        model_config = omega_conf_to_dataclass(cfg, DiffusersModelConfig)
+        model_config: DiffusersModelConfig = omega_conf_to_dataclass(cfg)
 
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/actor")):
             cfg = compose(
@@ -77,7 +77,7 @@ def create_training_config(model_type, strategy, device_count, model):
                     "policy_loss.loss_mode='flow_grpo'",
                 ],
             )
-        actor_config = omega_conf_to_dataclass(cfg, FSDPActorConfig)
+        actor_config: FSDPActorConfig = omega_conf_to_dataclass(cfg)
 
         engine_config = actor_config.engine
         optimizer_config = actor_config.optim
@@ -171,3 +171,5 @@ def test_diffusers_fsdp_engine(strategy):
     print("Output:", output_dict)
     print("Loss:", loss)
     assert "model_output" in output_dict.keys()
+
+    ray.shutdown()
