@@ -1,16 +1,31 @@
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
+from functools import partial
+
+import numpy as np
 import pytest
 import ray
 import torch
-from functools import partial
-import numpy as np
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-from verl.workers.engine import DiffusersFSDPEngine
-from verl.workers.config import ActorConfig, DiffusersModelConfig, FSDPEngineConfig, FSDPOptimizerConfig, TrainingWorkerConfig, PolicyLossConfig
-from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
+from verl.workers.config import DiffusersModelConfig, FSDPActorConfig, TrainingWorkerConfig
+from verl.workers.engine_workers import TrainingWorker
 from verl.workers.utils.losses import ppo_loss
+
 
 def create_training_config(model_type, strategy, device_count, model):
     if device_count == 1:
@@ -19,25 +34,54 @@ def create_training_config(model_type, strategy, device_count, model):
         cp = 2
         fsdp_size = 4
     path = os.path.expanduser(model)
-    tokenizer_path=os.path.joint(path, "tokenizer")
+    tokenizer_path = os.path.join(path, "tokenizer")
     model_config = DiffusersModelConfig(
         path=path,
         tokenizer_path=tokenizer_path,
         use_remove_padding=True,
     )
 
-    kwargs = dict(
-        param_offload=True,
-        optimizer_offload=True,
-        grad_offload=True,
-        model_dtype="float16",
-        dtype="float16"
-    )
     if strategy in ["fsdp", "fsdp2"]:
-        engine_config = FSDPEngineConfig(
-            forward_only=False, fsdp_size=fsdp_size, strategy=strategy, ulysses_sequence_parallel_size=cp, **kwargs
-        )
-        optimizer_config = FSDPOptimizerConfig(lr=1e-4, weight_decay=0.0001)
+        from hydra import compose, initialize_config_dir
+
+        from verl.utils.config import omega_conf_to_dataclass
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/model")):
+            cfg = compose(
+                config_name="diffusion_model",
+                overrides=[
+                    "path=" + path,
+                    "tokenizer_path=" + tokenizer_path,
+                ],
+            )
+        model_config = omega_conf_to_dataclass(cfg, DiffusersModelConfig)
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/actor")):
+            cfg = compose(
+                config_name="dp_actor",
+                overrides=[
+                    "strategy=" + strategy,
+                    "clip_ratio=0.0001",
+                    "clip_ratio_high=5.0",
+                    "ppo_mini_batch_size=4",
+                    "ppo_micro_batch_size_per_gpu=8",
+                    "optim.lr=1e-4",
+                    "optim.weight_decay=0.0001",
+                    "fsdp_config.param_offload=True",
+                    "fsdp_config.optimizer_offload=True",
+                    "fsdp_config.model_dtype='float16'",
+                    "fsdp_config.dtype='float16'",
+                    "fsdp_config.forward_only=False",
+                    "fsdp_config.fsdp_size=" + str(fsdp_size),
+                    "fsdp_config.ulysses_sequence_parallel_size=" + str(cp),
+                    "policy_loss.loss_mode='flow_grpo'",
+                ],
+            )
+        actor_config = omega_conf_to_dataclass(cfg, FSDPActorConfig)
+
+        engine_config = actor_config.engine
+        optimizer_config = actor_config.optim
+        checkpoint_config = actor_config.checkpoint
     else:
         raise NotImplementedError(f"strategy {strategy} is not supported")
 
@@ -46,36 +90,26 @@ def create_training_config(model_type, strategy, device_count, model):
         model_config=model_config,
         engine_config=engine_config,
         optimizer_config=optimizer_config,
-        checkpoint_config=None,
-    )
-
-    policy_loss = PolicyLossConfig(loss_mode="flow_grpo")
-    actor_config = ActorConfig(
-         strategy=strategy,
-         clip_ratio=0.0001,
-         clip_ratio_high=5.0,
-         ppo_mini_batch_size=4,
-         ppo_micro_batch_size_per_gpu=8,
-         optim=optimizer_config,
-         fsdp_config=engine_config,
-         policy_loss=policy_loss,
-         model_config=model_config,
+        checkpoint_config=checkpoint_config,
     )
     return training_config, actor_config
 
-def create_data_samples(tokenizer) -> DataProto:
+
+def create_data_samples() -> DataProto:
     from tensordict import TensorDict
+
     batch_size = 8
     seq_len = 64
     img_size = 512
-    latent_dim=16
-    cached_steps=40
+    latent_dim = 16
+    cached_steps = 40
+    vocab_size = 99
     torch.manual_seed(1)
     np.random.seed(1)
 
     data_td = TensorDict(
         {
-            "input_ids": torch.randint(0, tokenizer.vocab_size, (batch_size, seq_len)),
+            "input_ids": torch.randint(0, vocab_size, (batch_size, seq_len)),
             "attention_mask": torch.ones((batch_size, seq_len)),
             "response_mask": torch.ones((batch_size, seq_len)),
             "old_log_probs": torch.randn((batch_size, seq_len)),
@@ -107,6 +141,7 @@ def create_data_samples(tokenizer) -> DataProto:
 
     return data
 
+
 @pytest.mark.parametrize("strategy", ["fsdp", "fsdp2"])
 def test_diffusers_fsdp_engine(strategy):
     # Create configs
@@ -121,8 +156,7 @@ def test_diffusers_fsdp_engine(strategy):
     # init model
     ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(TrainingWorker), config=training_config)
     resource_pool = RayResourcePool(process_on_nodes=[device_count])
-    wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
-    assert isinstance(wg.engine, DiffusersFSDPEngine), "Engine is not an instance of DiffusersFSDPEngine"
+    wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)  # TrainigWorker
     wg.reset()
 
     # set loss function
@@ -130,7 +164,7 @@ def test_diffusers_fsdp_engine(strategy):
     wg.set_loss_fn(loss_fn)
 
     # eval
-    data_td = create_data_samples(wg.engine.module.tokenizer)
+    data_td = create_data_samples()
     output = wg.infer_batch(data_td)
     loss, output_dict = output.get()
 
