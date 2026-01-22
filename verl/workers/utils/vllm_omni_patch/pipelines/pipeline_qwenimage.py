@@ -47,7 +47,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         drop_idx = self.prompt_template_encode_start_idx
         encoder_hidden_states = self.text_encoder(
             input_ids=prompt_ids.to(self.device),
-            attention_mask=attention_mask.to(self.device),
+            attention_mask=attention_mask.to(self.device) if attention_mask is not None else None,
             output_hidden_states=True,
         )
         hidden_states = encoder_hidden_states.hidden_states[-1]
