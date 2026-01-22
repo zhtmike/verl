@@ -183,6 +183,10 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
                 all_log_probs.append(log_prob)
                 all_timesteps.append(t)
 
+        all_latents = torch.stack(all_latents, dim=1)
+        all_log_probs = torch.stack(all_log_probs, dim=1)
+        all_timesteps = torch.stack(all_timesteps).unsqueeze(0).expand(latents.shape[0], -1)
+
         return latents, all_latents, all_log_probs, all_timesteps
 
     def forward(
