@@ -114,11 +114,9 @@ class TestvLLMOmniRolloutCustomizedPipeline:
         await self.rollout_engine.update_weights([])
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="vllm-omni not support yet")
     async def test_resume(self):
-        await self.rollout_engine.resume([])
+        await self.rollout_engine.resume()
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="vllm-omni not support yet")
     async def test_release(self):
         await self.rollout_engine.release()

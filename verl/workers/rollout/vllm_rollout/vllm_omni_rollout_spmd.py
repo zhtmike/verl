@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import inspect
 import logging
 import os
 import time
@@ -165,26 +164,19 @@ class vLLMOmniRollout(BaseRollout):
 
         return DataProto(batch=batch, meta_info={"cached_steps": batch["timesteps"].shape[1]})
 
-    async def resume(self, tags: list[str]):
-        """Resume rollout weights or kv cache in GPU memory.
-
-        Args:
-            tags: weights or kv_cache.
-        """
+    async def resume(self):
+        """Resume rollout weights or kv cache in GPU memory."""
         if not self.config.free_cache_engine:
             return
 
-        if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-            self.inference_engine.wake_up(tags=tags)
-        else:
-            self.inference_engine.wake_up()
+        self.inference_engine.engine.collective_rpc("wake_up")
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
         if not self.config.free_cache_engine:
             return
 
-        self.inference_engine.sleep(level=self.sleep_level)
+        self.inference_engine.engine.collective_rpc("sleep", kwargs={"level": self.sleep_level})
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update the weights of the rollout model.
