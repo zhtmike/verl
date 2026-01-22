@@ -71,35 +71,6 @@ def mock_data() -> DataProto:
     return data
 
 
-class TestvLLMOmniRollout:
-    @classmethod
-    def setup_class(cls):
-        model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
-        tokenizer_path = os.path.join(model_path, "tokenizer")
-
-        diffusion_config = RolloutConfig()
-        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
-
-        cls.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
-        cls._prefix = "origin_"
-
-    @pytest.mark.skip
-    @pytest.mark.asyncio
-    async def test_generate_sequences(self, mock_data: DataProto):
-        result = await self.rollout_engine.generate_sequences(mock_data)
-        expected_batch_keys = ["responses"]
-        for key in expected_batch_keys:
-            assert key in result.batch, f"Key {key} not found in result batch."
-
-        assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
-        images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
-
-        # TODO: for visualization, drop later
-        for i, image in enumerate(images_pil):
-            image_path = os.path.join(f"{self._prefix}{i}.jpg")
-            Image.fromarray(image).save(image_path)
-
-
 class TestvLLMOmniRolloutCustomizedPipeline:
     @classmethod
     def setup_class(cls):
@@ -117,11 +88,21 @@ class TestvLLMOmniRolloutCustomizedPipeline:
     @pytest.mark.asyncio
     async def test_generate_sequences(self, mock_data: DataProto):
         result = await self.rollout_engine.generate_sequences(mock_data)
-        expected_batch_keys = ["responses"]
+        expected_batch_keys = [
+            "responses",
+            "latents",
+            "timesteps",
+            "prompt_embeds",
+            "prompt_embeds_mask",
+            "negative_prompt_embeds",
+            "negative_prompt_embeds_mask",
+        ]
         for key in expected_batch_keys:
             assert key in result.batch, f"Key {key} not found in result batch."
 
         assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
+        assert "cached_steps" in result.meta_info
+
         images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
 
         # TODO: for visualization, drop later

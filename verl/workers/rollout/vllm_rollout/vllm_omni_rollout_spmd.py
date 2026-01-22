@@ -119,16 +119,48 @@ class vLLMOmniRollout(BaseRollout):
         ]
 
         response = []
+        all_latents = []
+        all_log_probs = []
+        all_timesteps = []
+        prompt_embeds = []
+        prompt_embeds_mask = []
+        negative_prompt_embeds = []
+        negative_prompt_embeds_mask = []
+
         for output in outputs:
             response.append(self._to_tensor(output.images[0]))
+            all_latents.append(output.diffusion_output.all_latents)
+            all_log_probs.append(output.diffusion_output.all_log_probs)
+            all_timesteps.append(output.diffusion_output.all_timesteps)
+            prompt_embeds.append(output.diffusion_output.prompt_embeds)
+            prompt_embeds_mask.append(output.diffusion_output.prompt_embeds_mask)
+            negative_prompt_embeds.append(output.diffusion_output.negative_prompt_embeds)
+            negative_prompt_embeds_mask.append(output.diffusion_output.negative_prompt_embeds_mask)
+
         response = torch.stack(response, dim=0)
+        all_latents = torch.concat(all_latents, dim=0)
+        all_log_probs = torch.concat(all_log_probs, dim=0)
+        all_timesteps = torch.concat(all_timesteps, dim=0)
+        prompt_embeds = torch.concat(prompt_embeds, dim=0)
+        prompt_embeds_mask = torch.concat(prompt_embeds_mask, dim=0)
+        negative_prompt_embeds = torch.concat(negative_prompt_embeds, dim=0)
+        negative_prompt_embeds_mask = torch.concat(negative_prompt_embeds_mask, dim=0)
 
         batch = TensorDict(
-            {"responses": response},
+            {
+                "responses": response,
+                "latents": all_latents,
+                "log_probs": all_log_probs,
+                "timesteps": all_timesteps,
+                "prompt_embeds": prompt_embeds,
+                "prompt_embeds_mask": prompt_embeds_mask,
+                "negative_prompt_embeds": negative_prompt_embeds,
+                "negative_prompt_embeds_mask": negative_prompt_embeds_mask,
+            },
             batch_size=batch_size,
         )
 
-        return DataProto(batch=batch)
+        return DataProto(batch=batch, meta_info={"cached_steps": batch["timesteps"].shape[1]})
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
