@@ -103,9 +103,22 @@ class TestvLLMOmniRolloutCustomizedPipeline:
         assert result.batch.batch_size[0] == 2, f"Expected batch size 2, got {result.batch.batch_size[0]}."
         assert "cached_steps" in result.meta_info
 
-        images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
-
         # TODO: for visualization, drop later
+        images_pil = result.batch["responses"].permute(0, 2, 3, 1).numpy().astype("uint8")
         for i, image in enumerate(images_pil):
             image_path = os.path.join(f"{self._prefix}{i}.jpg")
             Image.fromarray(image).save(image_path)
+
+    @pytest.mark.asyncio
+    async def test_update_weights(self):
+        await self.rollout_engine.update_weights([])
+
+    @pytest.mark.asyncio
+    @pytest.mark.skip(reason="vllm-omni not support yet")
+    async def test_resume(self):
+        await self.rollout_engine.resume([])
+
+    @pytest.mark.asyncio
+    @pytest.mark.skip(reason="vllm-omni not support yet")
+    async def test_release(self):
+        await self.rollout_engine.release()

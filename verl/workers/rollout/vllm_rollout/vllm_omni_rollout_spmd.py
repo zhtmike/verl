@@ -14,6 +14,8 @@
 import inspect
 import logging
 import os
+import time
+from dataclasses import asdict
 from typing import Generator
 
 import torch
@@ -28,6 +30,7 @@ from verl import DataProto
 from verl.third_party.vllm_omni import VLLM_OMNI_SLEEP_LEVEL
 from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.vllm import TensorLoRARequest
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
@@ -178,8 +181,6 @@ class vLLMOmniRollout(BaseRollout):
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        self.inference_engine.reset_prefix_cache()
-
         if not self.config.free_cache_engine:
             return
 
@@ -191,4 +192,17 @@ class vLLMOmniRollout(BaseRollout):
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
-        raise NotImplementedError("vLLM-Omni rollout does not support weight update yet.")
+        peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
+        if peft_config and base_sync_done:
+            lora_int_id = int(time.time_ns() % 0x7FFFFFFF)
+            lora_reqest = TensorLoRARequest(
+                lora_name=f"{lora_int_id}",
+                lora_int_id=lora_int_id,
+                lora_path="simon_lora_path",
+                peft_config=asdict(peft_config),
+                lora_tensors=dict(weights),
+            )
+            await self.inference_engine.add_lora(lora_reqest)
+            logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
+        else:
+            self.inference_engine.engine.collective_rpc(method="load_weights", args=(weights,))
