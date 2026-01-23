@@ -35,6 +35,7 @@ import ray
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import DeviceMesh
+from vllm_omni.diffusion.worker.gpu_worker import WorkerWrapperBase
 
 from verl.third_party.vllm_omni import VLLM_OMNI_SLEEP_LEVEL
 from verl.utils.device import is_npu_available
@@ -62,7 +63,7 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
     ):
         super(vLLMAsyncRollout, self).__init__(config, model_config, device_mesh)
         self.tokenizer = self.model_config.tokenizer
-        self.inference_engine = None
+        self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
         self.lora_config = (
             {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
@@ -100,9 +101,6 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
             raise NotImplementedError
         if self.config.quantization is not None:
             raise NotImplementedError("vLLM-Omni does not support quantization yet.")
-
-        # TODO (mike): change to vllm-omni
-        from vllm.worker.worker_base import WorkerWrapperBase
 
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)

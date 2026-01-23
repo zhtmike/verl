@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 from typing import Any, Optional
-from uuid import uuid4
 
 import hydra
 import numpy as np
@@ -45,33 +44,10 @@ from verl.utils.rollout_trace import (
     rollout_trace_attr,
 )
 from verl.utils.transferqueue_utils import tqbridge
-from verl.workers.rollout.replica import ImageOutput, get_rollout_replica_class
+from verl.workers.rollout.replica import get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-class AsyncDiffusionServerManager(AsyncLLMServerManager):
-    """Asynchronous Diffusion server manager for diffusion models."""
-
-    async def generate(
-        self,
-        request_id,
-        *,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        image_data: Optional[list[Any]] = None,
-        video_data: Optional[list[Any]] = None,
-    ) -> ImageOutput:
-        server = self._choose_server(request_id)
-        output = await server.generate.remote(
-            request_id=uuid4().hex,  # use new request_id for each turn
-            prompt_ids=prompt_ids,
-            sampling_params=sampling_params,
-            image_data=image_data,
-            video_data=video_data,
-        )
-        return output
 
 
 class DiffusionAgentLoopOutput(BaseModel):
@@ -135,7 +111,7 @@ class DiffusionAgentLoopWorker:
 
         # for recipe to change
         if not hasattr(self, "server_manager"):
-            self.server_manager = AsyncDiffusionServerManager(config, server_handles)
+            self.server_manager = AsyncLLMServerManager(config, server_handles)
 
         self.dataset_cls = get_dataset_class(config.data)
         self.reward_router_address = reward_router_address
@@ -185,14 +161,9 @@ class DiffusionAgentLoopWorker:
 
         Returns:
             DataProto: Output batch.
-            - prompts: [bsz, prompt_length], prompts token ids from dataset.
-            - responses: [bsz, channel, height, width],  output images
-              from diffusion generation from tool_calls.
-            - prompt_embeddings: [bsz, ], prompt embeddings
-            - timesteps: [bsz, ], timesteps
-            - latent_samples: [bsz, ], latents per step
-            - log_probs: [bsz, ], log probabilities
-            - latent_sample_means: [bsz, ], latent means
+            - prompts: [bsz, prompt_length], prompt token ids from dataset.
+            - responses: [bsz, channel, height, width],  output images from diffusion generation.
+            ...
         """
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
@@ -203,6 +174,7 @@ class DiffusionAgentLoopWorker:
         if batch.meta_info.get("validate", False):
             sampling_params["num_inference_steps"] = config.val_kwargs.num_inference_steps
             sampling_params["seed"] = config.val_kwargs.seed
+            sampling_params["noise_level"] = config.val_kwargs.noise_level
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
@@ -286,64 +258,22 @@ class DiffusionAgentLoopWorker:
     async def _agent_loop_postprocess(self, output, **kwargs) -> _InternalDiffusionAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
         output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
-
-        # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
-
-        # NOTE: consistent with the legacy batch version of generate_sequences that existed in the
-        # deprecated vLLM SPMD rollout implementation.
-        # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
-        # response_ids: right padded with zeros (e.g., [5,6,7,8,0,0,0,0])
-        # input_ids: concatenation of prompt + response
-        # Mask:
-        # For example, if the prompt is [1,2,3,4] and the response is [5,6,7,(tool start)8,9(tool end),10,11,12]
-        # - prompt_attention_mask: 0s for padding, 1s for tokens
-        #   e.g., [0,0,0,0,1,1,1,1]
-        # - response_attention_mask: 0s for padding, 1s for tokens
-        #   e.g., [1,1,1,1,1,1,1,1,1,1,1,0,0,0,0]
-        # attention_mask: concatenation of prompt_attention_mask and response_attention_mask
-        #   e.g., [0,0,0,0,1,1,1,1(prompt),1,1,1,1,1,1,1,1,1,1,1,0,0,0,0(response)]
-        # - response_mask: 1s for LLM generated tokens, 0 for tool response/padding tokens
-        #   e.g., [1,1,1,1,1,1,1,(tool start),0,0(tool end),1,1,0,0,0,0]
-        # - position_ids: sequential positions for tokens, starting at 0
-        #   e.g., [0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,0,0,0,0]
-
-        # TODO(wuxibin): remove padding and use tensordict.
-        self.tokenizer.padding_side = "left"
-        prompt_output = self.tokenizer.pad(
-            {"input_ids": output.prompt_ids},
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        if prompt_output["input_ids"].dim() == 1:
-            prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
-            prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
-
-        self.tokenizer.padding_side = "right"
         response_logprobs = None
         if output.response_logprobs is not None:
-            pad_size = self.config.actor_rollout_ref.rollout.response_length - len(output.response_logprobs)
-            response_logprobs = torch.tensor(output.response_logprobs + [0.0] * pad_size).unsqueeze(0)
+            response_logprobs = torch.tensor(output.response_logprobs).unsqueeze(0)
 
-        attention_mask = prompt_output["attention_mask"]
-        input_ids = prompt_output["input_ids"]
-
-        multi_modal_inputs = self._compute_multi_modal_inputs(output, input_ids)
+        multi_modal_inputs = self._compute_multi_modal_inputs(output, output.prompt_ids)
         await self._compute_score(
             output,
-            prompts=prompt_output["input_ids"],
-            responses=output["response_image"],
-            attention_mask=attention_mask,
-            input_ids=input_ids,
+            prompts=output.prompt_ids,
+            responses=output.response_image,
             kwargs=kwargs,
         )
 
         return _InternalDiffusionAgentLoopOutput(
-            prompt_ids=prompt_output["input_ids"],
-            response_image=output["response_image"],
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+            prompt_ids=output.prompt_ids,
+            response_image=output.response_image,
+            attention_mask=output.attention_mask,
             response_logprobs=response_logprobs,
             multi_modal_inputs=multi_modal_inputs,
             multi_modal_data=output.multi_modal_data,
@@ -388,7 +318,7 @@ class DiffusionAgentLoopWorker:
             multi_modal_inputs["images_seqlens"] = images_seqlens
         return multi_modal_inputs
 
-    async def _compute_score(self, output, prompts, responses, attention_mask, input_ids, position_ids, kwargs):
+    async def _compute_score(self, output, prompts, responses, attention_mask, kwargs):
         """Compute reward score for single sample."""
         enable_async_reward = (
             self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
@@ -400,7 +330,6 @@ class DiffusionAgentLoopWorker:
                     "prompts": prompts,  # [1, prompt_length]
                     "responses": responses,  # [1, channel, height, width]
                     "attention_mask": attention_mask,  # [1, prompt_length + response_length]
-                    "input_ids": input_ids,  # [1, prompt_length + response_length]
                 },
                 batch_size=1,
             )

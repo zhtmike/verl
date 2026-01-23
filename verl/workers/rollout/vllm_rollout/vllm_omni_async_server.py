@@ -24,7 +24,7 @@ import ray
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
 from vllm.utils.argparse_utils import FlexibleArgumentParser
-from vllm_omni.engine.arg_utils import AsyncEngineArgs
+from vllm_omni.engine.arg_utils import AsyncOmniEngineArgs
 from vllm_omni.entrypoints import AsyncOmniDiffusion
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
 from vllm_omni.outputs import RequestOutput
@@ -100,7 +100,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             self._master_port, self._master_sock = get_free_port(self._server_address)
             self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address)
             logger.info(
-                f"vLLMHttpServer, replica_rank: {self.replica_rank}, master address: {self._master_address}, "
+                f"vLLMOmniHttpServer, replica_rank: {self.replica_rank}, master address: {self._master_address}, "
                 f"master port: {self._master_port}, data parallel master port: {self._dp_master_port}"
             )
         else:
@@ -251,7 +251,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             await self.run_headless(server_args)
 
     async def run_server(self, args: argparse.Namespace):
-        engine_args = AsyncEngineArgs.from_cli_args(args)
+        engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
         engine_client = AsyncOmniDiffusion(engine_args.model)
         app = build_app(args)
