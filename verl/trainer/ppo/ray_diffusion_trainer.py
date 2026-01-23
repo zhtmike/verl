@@ -667,22 +667,19 @@ class RayFlowGRPOTrainer:
             from tensordict import TensorDict
 
             batch_size = len(test_gen_batch_padded.non_tensor_batch["prompt"])
-            latent_dim = 16
+            seq_len = test_gen_batch_padded.batch["input_ids"].shape[1]
+            latent_dim = 64
+            encoder_latent_dim = 3584
             generated_results = TensorDict(
                 {
                     "responses": torch.randn((batch_size, 3, 512, 512)),
-                    "latents": torch.randn((batch_size, latent_dim)),
+                    "latents": torch.randn((batch_size, 40, 32 * 32, latent_dim)),
                     "rollout_log_probs": torch.randn((batch_size,)),
-                    "timesteps": torch.randn(
-                        (
-                            batch_size,
-                            40,
-                        )
-                    ),
-                    "prompt_embeds": torch.randn((batch_size, latent_dim)),
-                    "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
-                    "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
-                    "negative_pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                    "timesteps": torch.randn((batch_size, 10)),
+                    "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+                    "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
+                    "negative_prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+                    "negative_prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
                 },
                 batch_size=batch_size,
             )
@@ -1447,22 +1444,33 @@ class RayFlowGRPOTrainer:
                         from tensordict import TensorDict
 
                         batch_size = len(gen_batch_output.non_tensor_batch["prompt"])
-                        latent_dim = 16
-                        cached_steps = 40
+                        latent_dim = 64
+                        encoder_latent_dim = 3584
+                        inference_steps = 40
+                        height, width = 512, 512
+                        vae_scale_factor = 8
+                        seq_len = gen_batch_output.batch["input_ids"].shape[1]
+                        latent_height, latent_width = height // vae_scale_factor // 2, width // vae_scale_factor // 2
+                        num_train_timesteps = 10
+                        timesteps = np.linspace(20, 1000, num_train_timesteps, dtype=np.float32)[::-1].copy()
+                        timesteps = torch.from_numpy(timesteps).to(torch.float32).repeat(batch_size, 1)
                         generated_results = TensorDict(
                             {
-                                "responses": torch.randn((batch_size, 3, 512, 512)),
-                                "latents": torch.randn((batch_size, latent_dim)),
+                                "responses": torch.randn((batch_size, 3, height, width)),
+                                "latents": torch.randn(
+                                    (batch_size, inference_steps, latent_height * latent_width, latent_dim)
+                                ),
                                 "rollout_log_probs": torch.randn((batch_size,)),
-                                "timesteps": torch.randn((batch_size, cached_steps)),
-                                "prompt_embeds": torch.randn((batch_size, latent_dim)),
-                                "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
-                                "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
-                                "negative_pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
+                                "timesteps": timesteps,
+                                "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+                                "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
+                                "negative_prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+                                "negative_prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
+                                "loss_mask": torch.ones((batch_size, latent_height * latent_width), dtype=torch.int32),
                             },
                             batch_size=batch_size,
                         )
-                        gen_batch_output = DataProto(batch=generated_results)
+                        gen_batch_output = gen_batch_output.union(DataProto(batch=generated_results))
                         gen_batch_output.meta_info["cached_steps"] = gen_batch_output.batch["timesteps"].shape[1]
                         # timing_raw.update(gen_batch_output.meta_info["timing"])
                         # gen_batch_output.meta_info.pop("timing", None)

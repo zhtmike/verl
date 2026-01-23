@@ -22,6 +22,7 @@ import torch
 
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils import tensordict_utils as tu
 from verl.workers.config import DiffusersModelConfig, FSDPActorConfig, TrainingWorkerConfig
 from verl.workers.engine_workers import TrainingWorker
 from verl.workers.utils.losses import ppo_loss
@@ -69,8 +70,8 @@ def create_training_config(model_type, strategy, device_count, model):
                     "optim.weight_decay=0.0001",
                     "fsdp_config.param_offload=True",
                     "fsdp_config.optimizer_offload=True",
-                    "fsdp_config.model_dtype='float16'",
-                    "fsdp_config.dtype='float16'",
+                    "fsdp_config.model_dtype='bfloat16'",
+                    "fsdp_config.dtype='bfloat16'",
                     "fsdp_config.forward_only=False",
                     "fsdp_config.fsdp_size=" + str(fsdp_size),
                     "fsdp_config.ulysses_sequence_parallel_size=" + str(cp),
@@ -101,43 +102,44 @@ def create_data_samples() -> DataProto:
     batch_size = 8
     seq_len = 64
     img_size = 512
-    latent_dim = 16
-    cached_steps = 40
+    latent_dim = 64
+    encoder_latent_dim = 3584
+    inference_steps = 40
     vocab_size = 99
+    vae_scale_factor = 8
+    height, width = img_size, img_size
+    latent_height, latent_width = height // vae_scale_factor // 2, width // vae_scale_factor // 2
+    num_train_timesteps = 10
+    timesteps = np.linspace(20, 1000, num_train_timesteps, dtype=np.float32)[::-1].copy()
+    timesteps = torch.from_numpy(timesteps).to(torch.float32).repeat(batch_size, 1)
+
     torch.manual_seed(1)
     np.random.seed(1)
 
-    data_td = TensorDict(
+    batch = TensorDict(
         {
             "input_ids": torch.randint(0, vocab_size, (batch_size, seq_len)),
             "attention_mask": torch.ones((batch_size, seq_len)),
             "response_mask": torch.ones((batch_size, seq_len)),
             "old_log_probs": torch.randn((batch_size, seq_len)),
             "advantages": torch.randn((batch_size, seq_len)),
-            "responses": torch.randn((batch_size, 3, img_size, img_size)),
-            "latents": torch.randn((batch_size, latent_dim)),
+            "responses": torch.randn((batch_size, 3, height, width)),
+            "latents": torch.randn((batch_size, inference_steps, latent_height * latent_width, latent_dim)),
             "rollout_log_probs": torch.randn((batch_size,)),
-            "timesteps": torch.randn((batch_size, cached_steps)),
-            "prompt_embeds": torch.randn((batch_size, latent_dim)),
-            "prompt_embeds_mask": torch.ones((batch_size, latent_dim)),
-            "pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
-            "negative_prompt_embeds": torch.randn((batch_size, latent_dim)),
-            "negative_prompt_embeds_mask": torch.ones((batch_size, latent_dim)),
-            "negative_pooled_prompt_embeds": torch.randn((batch_size, latent_dim)),
-            "loss_mask": torch.ones((batch_size, seq_len)),
+            "timesteps": timesteps,
+            "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+            "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
+            "negative_prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
+            "negative_prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
+            "loss_mask": torch.ones((batch_size, latent_height * latent_width), dtype=torch.int32),
         },
         batch_size=batch_size,
     )
-    data = DataProto(
-        batch=[data_td],
-        non_tensor_batch={
-            "height": img_size,
-            "width": img_size,
-            "vae_scale_factor": 8,
-        },
-    )
+    data = DataProto(batch=batch)
     data.meta_info["cached_steps"] = data.batch["timesteps"].shape[1]
     data.meta_info["global_token_num"] = torch.sum(data.batch["attention_mask"], dim=-1).tolist()
+    data.meta_info["use_dynamic_bsz"] = False
+    data.meta_info["micro_batch_size_per_gpu"] = 4
 
     return data
 
@@ -159,17 +161,39 @@ def test_diffusers_fsdp_engine(strategy):
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)  # TrainigWorker
     wg.reset()
 
+    # forward only without loss function
+    data_td = create_data_samples().to_tensordict()
+    tu.assign_non_tensor(data_td, compute_loss=False, height=512, width=512)
+    output = wg.infer_batch(data_td)
+    output_dict = output.get()
+
+    print("Output:", output_dict)
+    for key in ["log_probs", "metrics"]:
+        assert key in output_dict
+
+    # forward and backward with loss function
     # set loss function
     loss_fn = partial(ppo_loss, config=actor_config)
     wg.set_loss_fn(loss_fn)
 
-    # eval
-    data_td = create_data_samples()
-    output = wg.infer_batch(data_td)
-    loss, output_dict = output.get()
+    # train batch
+    data_td = create_data_samples().to_tensordict()
+    ppo_mini_batch_size = 8
+    ppo_epochs = actor_config.ppo_epochs
+    seed = 42
+    shuffle = actor_config.shuffle
+    tu.assign_non_tensor(
+        data_td,
+        global_batch_size=ppo_mini_batch_size,
+        mini_batch_size=ppo_mini_batch_size,
+        epochs=ppo_epochs,
+        seed=seed,
+        dataloader_kwargs={"shuffle": shuffle},
+    )
+    output = wg.train_mini_batch(data_td)
+    output_dict = output.get()
 
     print("Output:", output_dict)
-    print("Loss:", loss)
-    assert "model_output" in output_dict.keys()
+    assert "metrics" in output_dict.keys()
 
     ray.shutdown()

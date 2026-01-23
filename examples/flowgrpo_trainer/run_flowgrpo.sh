@@ -26,7 +26,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.model.guidance_scale=1.0 \
     actor_rollout_ref.model.noise_level=0.8 \
-    actor_rollout_ref.model.sde_type="cps" \
+    actor_rollout_ref.model.sde_type="sde" \
     actor_rollout_ref.model.lora_rank=32 \
     actor_rollout_ref.model.lora_alpha=64 \
     actor_rollout_ref.actor.optim.lr=1e-4 \
@@ -38,10 +38,9 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.fsdp_config.model_dtype=float16 \
-    actor_rollout_ref.actor.fsdp_config.dtype=float16 \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=1 \
+    +actor_rollout_ref.actor.fsdp_config.mixed_precision.param_dtype=float16 \
     actor_rollout_ref.actor.policy_loss.loss_mode=flow_grpo \
-    actor_rollout_ref.ref.fsdp_config.dtype=float16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
@@ -53,7 +52,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.guidance_scale=1.0 \
     actor_rollout_ref.rollout.noise_level=0.8 \
-    actor_rollout_ref.rollout.sde_type="cps" \
+    actor_rollout_ref.rollout.sde_type="sde" \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     custom_reward_function.path=$reward_path \
@@ -62,9 +61,8 @@ python3 -m verl.trainer.main_flowgrpo \
     reward_model.model.path=$reward_model_name \
     reward_model.enable=True \
     reward_model.rollout.name=$REWARD_ENGINE \
-    reward_model.enable_resouece_pool=False \
+    reward_model.enable_resource_pool=False \
     reward_model.use_reward_loop=True \
-    +reward_model.reward_kwargs.reward_router_address=${reward_router_address} \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name='flow_grpo' \
