@@ -670,11 +670,12 @@ class RayFlowGRPOTrainer:
             seq_len = test_gen_batch_padded.batch["input_ids"].shape[1]
             latent_dim = 64
             encoder_latent_dim = 3584
+            num_train_timesteps = 10
             generated_results = TensorDict(
                 {
                     "responses": torch.randn((batch_size, 3, 512, 512)),
                     "latents": torch.randn((batch_size, 40, 32 * 32, latent_dim)),
-                    "rollout_log_probs": torch.randn((batch_size,)),
+                    "rollout_log_probs": torch.randn((batch_size, num_train_timesteps)),
                     "timesteps": torch.randn((batch_size, 10)),
                     "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
                     "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
@@ -1278,7 +1279,13 @@ class RayFlowGRPOTrainer:
             # step 1: convert dataproto to tensordict.
             batch_td = batch.to_tensordict()
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+            tu.assign_non_tensor(
+                batch_td,
+                calculate_entropy=True,
+                compute_loss=False,
+                height=self.config.actor_rollout_ref.rollout.image_height,
+                width=self.config.actor_rollout_ref.rollout.image_width,
+            )
             output = self.actor_rollout_wg.compute_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
@@ -1460,7 +1467,7 @@ class RayFlowGRPOTrainer:
                                 "latents": torch.randn(
                                     (batch_size, inference_steps, latent_height * latent_width, latent_dim)
                                 ),
-                                "rollout_log_probs": torch.randn((batch_size,)),
+                                "rollout_log_probs": torch.randn((batch_size, num_train_timesteps)),
                                 "timesteps": timesteps,
                                 "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
                                 "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),

@@ -536,18 +536,18 @@ class DiffusersFSDPEngine(BaseEngine):
                         if key not in model_output_lst:
                             model_output_lst[key] = []
                         model_output_lst[key].append(val)
-                    for key, val in model_output_lst.items():
-                        if key not in model_output:
-                            model_output[key] = []
-                        model_output[key].append(torch.stack(val, dim=1))  # (bsz, steps, ...)
+                for key, val in model_output_lst.items():
+                    if key not in model_output:
+                        model_output[key] = []
+                    model_output[key].append(torch.stack(val, dim=1))  # (bsz, steps, ...)
             # loss
             if "loss" in o:
                 losses.append(o["loss"])
 
             # metrics
             if "metrics" in o:  # TODO: (susan) not sure
-                metrics = o["metrics"]
-                append_to_dict(aggregated_metrics, metrics)
+                for metrics in o["metrics"]:
+                    append_to_dict(aggregated_metrics, metrics)
 
         # concat results from micro batches
 
