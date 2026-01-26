@@ -12,8 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .diffusion_reward_loop import DiffusionRewardLoopManager
+from .diffusion_reward_loop import DiffusionRewardLoopManager, DiffusionRewardLoopWorker
 from .reward_loop import RewardLoopManager, RewardLoopWorker
 from .reward_model import RewardModelManager
 
-__all__ = ["RewardModelManager", "RewardLoopWorker", "RewardLoopManager", "DiffusionRewardLoopManager"]
+__all__ = [
+    "RewardModelManager",
+    "RewardLoopWorker",
+    "RewardLoopManager",
+    "DiffusionRewardLoopManager",
+    "DiffusionRewardLoopWorker",
+]

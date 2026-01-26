@@ -34,7 +34,7 @@ from verl.experimental.agent_loop.agent_loop import (
 )
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
-from verl.experimental.reward_loop import RewardLoopWorker
+from verl.experimental.reward_loop import DiffusionRewardLoopWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
@@ -137,7 +137,7 @@ class DiffusionAgentLoopWorker:
         use_reward_loop = True if self.config.reward_model.use_reward_loop else None
         self.use_reward_loop = use_reward_loop
         if use_reward_loop and not hasattr(self, "reward_loop_worker"):
-            self.reward_loop_worker = RewardLoopWorker.options(
+            self.reward_loop_worker = DiffusionRewardLoopWorker.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=ray.get_runtime_context().get_node_id(),
                     soft=False,

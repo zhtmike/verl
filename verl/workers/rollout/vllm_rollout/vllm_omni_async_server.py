@@ -26,7 +26,7 @@ from ray.actor import ActorHandle
 from vllm.lora.request import LoRARequest
 from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncOmniEngineArgs
-from vllm_omni.entrypoints import AsyncOmniDiffusion
+from vllm_omni.entrypoints import AsyncOmni
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
 from vllm_omni.outputs import RequestOutput
 
@@ -293,7 +293,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
-        engine_client = AsyncOmniDiffusion(engine_args.model)
+        engine_client = AsyncOmni(model=engine_args.model)
         app = build_app(args)
         await omni_init_app_state(engine_client, None, app.state, args)
 
@@ -316,15 +316,6 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         priority: int = 0,
     ) -> ImageOutput:
         """Generate sequence with token-in-image-out."""
-        # Calculate the maximum possible new tokens based on available context space
-        # This serves as a safety upper bound
-        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
-        if max_possible_tokens < 0:
-            raise ValueError(
-                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
-                f"({self.config.max_model_len})."
-            )
-
         multi_modal_data = {}
         if image_data is not None:
             multi_modal_data["image"] = image_data

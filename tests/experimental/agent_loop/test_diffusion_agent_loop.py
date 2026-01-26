@@ -20,6 +20,8 @@ from omegaconf import DictConfig
 
 from verl.experimental.agent_loop.diffusion_agent_loop import DiffusionAgentLoopManager
 from verl.protocol import DataProto
+from verl.trainer.ppo.reward import compute_reward, load_reward_manager
+from verl.utils import hf_tokenizer
 
 
 @pytest.fixture
@@ -33,7 +35,13 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.model.tokenizer_path = os.path.join(model_path, "tokenizer")
     config.actor_rollout_ref.rollout.name = "vllm-omni"
+    config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.n = 4
+    config.actor_rollout_ref.rollout.agent.num_workers = 2
+    config.actor_rollout_ref.rollout.skip_tokenizer_init = True
+    config.data.custom_cls.path = "verl/utils/dataset/qwen_dataset.py"
+    config.data.custom_cls.name = "QwenDataset"
 
     # TODO (Mike): we test with 1 GPU card currently, later drop these
     config.actor_rollout_ref.rollout.agent.num_workers = 1
@@ -50,25 +58,23 @@ def test_single_turn(init_config):
                 "TOKENIZERS_PARALLELISM": "true",
                 "NCCL_DEBUG": "WARN",
                 "VLLM_LOGGING_LEVEL": "INFO",
-                "VLLM_USE_V1": "1",
             }
         }
     )
 
-    prompt = (
-        'A coffee shop entrance features a chalkboard sign reading "Qwen Coffee 😊 $2 per cup," '
-        'with a neon light beside it displaying "通义千问". Next to it hangs a poster showing a beautiful '
-        'Chinese woman, and beneath the poster is written "π≈3.1415926-53589793-23846264-33832795-02384197". '
-        "Ultra HD, 4K, cinematic composition"
+    agent_loop_manager = DiffusionAgentLoopManager(init_config)
+    tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.tokenizer_path)
+    reward_fn = load_reward_manager(
+        init_config, tokenizer, num_examine=0, **init_config.reward_model.get("reward_kwargs", {})
     )
 
-    agent_loop_manager = DiffusionAgentLoopManager(init_config)
-
-    raw_prompts = [[{"role": "user", "content": prompt}]]
+    raw_prompts = [[{"role": "user", "content": "A photo of cat."}]]
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
             "agent_name": np.array(["diffusion_single_turn_agent"] * len(raw_prompts)),
+            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
         },
     )
     n = init_config.actor_rollout_ref.rollout.n
@@ -80,6 +86,16 @@ def test_single_turn(init_config):
     seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
+
+    if init_config.actor_rollout_ref.rollout.calculate_log_probs:
+        assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
+
+    # check compute score
+    assert result.batch["rm_scores"].shape == result.batch["responses"].shape
+    reward_tensor, reward_extra_info = compute_reward(result, reward_fn)
+    assert reward_tensor.shape == result.batch["responses"].shape
+    assert "acc" in reward_extra_info, f"reward_extra_info {reward_extra_info} should contain 'acc'"
+    assert reward_extra_info["acc"].shape == (len(result),), f"invalid acc: {reward_extra_info['acc']}"
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]

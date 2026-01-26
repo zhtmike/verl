@@ -45,7 +45,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class DiffusionRewardLoopWorker:
     def __init__(self, config: DictConfig, reward_router_address: str = None):
         """
-        RewardLoopWorker can tackle reward computation:
+        DiffusionRewardLoopWorker can tackle reward computation:
         (1) rule-based reward computation
         (2) reward model-based reward computation (both disrm and genrm)
         (3) high-flexible user-customized reward function (can access rm by posting requests to reward_model_router)
@@ -115,7 +115,7 @@ class DiffusionRewardLoopWorker:
         return outputs
 
     async def compute_score(self, data: DataProto) -> dict:
-        assert len(data) == 1, "RewardLoopWorker only support single data item"
+        assert len(data) == 1, "DiffusionRewardLoopWorker only support single data item"
         if self.config.custom_reward_function.path is not None:
             # directly use user-customized reward function
             return await self.reward_loop.run_single(data)
