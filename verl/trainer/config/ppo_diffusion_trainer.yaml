@@ -78,3 +78,9 @@ actor_rollout_ref:
       num_inference_steps: 10
 
       seed: 42
+
+  # Algorithm config
+  algorithm:
+
+    # Whether to normalize advantages using global standard deviation
+    global_std: True
