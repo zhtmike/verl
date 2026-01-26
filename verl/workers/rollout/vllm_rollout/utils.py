@@ -232,6 +232,108 @@ class vLLMColocateWorkerExtension:
         return f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
 
 
+class vLLMOmniColocateWorkerExtension:
+    """
+    The class for vLLM-Omni's worker to inherit from, in the colocate setting.
+    By defining an extension class, the code can work no matter what is
+    the underlying worker class. This way, the code can be compatible
+    with both vLLM V0 and V1.
+    NOTE: we define this class in a separate module, and the main module
+    should pass the full qualified name as `worker_extension_cls` argument.
+
+    Feature support:
+    1. LoRA
+    2. Online FP8 quantization
+    """
+
+    def __new__(cls, **kwargs):
+        set_death_signal()
+
+        # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
+        # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
+        # This is only a fix for vllm version < v0.13.0.
+        if is_npu_available:
+            raise NotImplementedError("vLLMOmniColocateWorkerExtension is not supported on NPU currently.")
+
+        return super().__new__(cls)
+
+    def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False):
+        """Update the weights of the rollout model."""
+        from vllm.platforms import current_platform
+
+        if current_platform.device_type == "npu" and self.device is None:
+            self.device = torch.device(f"npu:{self.local_rank}")
+
+        # In async mode, make sure the old lora is removed before adding the new one
+        if peft_config and base_sync_done:
+            self.remove_lora(VLLM_LORA_INT_ID)
+
+        # build cuda ipc buffer
+        assert self.device is not None
+        if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
+            self._zmq_ctx = zmq.Context()
+        socket = self._zmq_ctx.socket(zmq.REP)
+        socket.connect(self._get_zmq_handle())
+        handle = socket.recv_pyobj()
+        buffer: torch.Tensor = rebuild_ipc(handle, self.device.index)
+        assert buffer.dtype == torch.uint8
+        socket.send(b"")
+
+        # receive bucket and update weights
+        while True:
+            metadata = socket.recv_pyobj()
+            weights = []
+            for name, meta in metadata["bucket_meta"].items():
+                shape, dtype, offset = meta["shape"], meta["dtype"], meta["offset"]
+                size = dtype.itemsize * shape.numel()
+                # NOTE: we need to clone the tensor to release CUDA IPC memory
+                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape).clone()
+                weights.append((name, tensor))
+            get_torch_device().synchronize()
+            socket.send(b"")
+            self._update_weights(weights, peft_config=peft_config, base_sync_done=base_sync_done)
+            del weights
+            if metadata["is_last"]:
+                break
+
+        # clean up
+        socket.close()
+        del buffer
+        gc.collect()
+        get_torch_device().ipc_collect()
+        get_torch_device().empty_cache()
+
+    def _update_weights(self, weights: list[tuple[str, torch.Tensor]], peft_config: dict, base_sync_done: bool):
+        if peft_config and base_sync_done:
+            weights = dict(weights)
+            lora_request = TensorLoRARequest(
+                lora_name=VLLM_LORA_NAME,
+                lora_int_id=VLLM_LORA_INT_ID,
+                lora_path=VLLM_LORA_PATH,
+                peft_config=peft_config,
+                lora_tensors=weights,
+            )
+            self.add_lora(lora_request)
+            logger.info(f"vLLM-Omni load weights, loaded_params: {len(weights)}")
+        else:
+            # Add the FP8 related logic here as sharding manager has been deprecated.
+            # Check if FP8 quantization is enabled and apply appropriate weight loading
+            if is_fp8_model(self.model_runner.vllm_config):
+                logger.info(f"FP8 model detected (async): {self.model_runner.vllm_config.quant_config}")
+                # Convert bf16 weights to fp8 format before loading
+                loaded_params = load_quanted_weights(weights, self.model_runner)
+                logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
+            else:
+                logger.info("Loading standard weights (non-FP8, async)")
+                self.model_runner.model.load_weights(weights)
+
+    def _get_zmq_handle(self) -> str:
+        """Get ZMQ handle for communication."""
+        if not hasattr(self, "device_uuid") or not self.device_uuid:
+            self.device_uuid = get_device_uuid(self.device.index)
+        return f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
+
+
 class SuppressSignalInThread:
     def __enter__(self):
         self.original_signal = signal.signal

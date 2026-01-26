@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-The vllm_rollout that can be applied in different backend
+The vllm_omni_rollout that can be applied in different backend
 When working with FSDP:
 - Use DTensor weight loader (recommended) or HF weight loader
 - Utilize state_dict from the FSDP to synchronize the weights among tp ranks in vLLM
@@ -29,31 +29,27 @@ When working with Megatron:
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 import ray
-import torch
-import torch.distributed
+import zmq
 from torch.distributed.device_mesh import DeviceMesh
-from vllm_omni.diffusion.worker.gpu_worker import WorkerWrapperBase
 
 from verl.third_party.vllm_omni import VLLM_OMNI_SLEEP_LEVEL
-from verl.utils.device import is_npu_available
-from verl.utils.distributed import initialize_global_process_group_ray
-from verl.utils.ray_utils import ray_noset_visible_devices
+from verl.utils.device import get_device_id
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
-from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMAsyncRollout
+from verl.workers.rollout.vllm_rollout.utils import get_device_uuid
+from verl.workers.rollout.vllm_rollout.vllm_rollout import ServerAdapter
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 
-VLLM_ASCEND_REQUIRED_ENV_VARS = {}
-
-
-class vLLMOmniAsyncRollout(vLLMAsyncRollout):
-    """vLLMOmniAsyncRollout is a thin wrapper of WorkerWrapperBase, which is engine in single worker process."""
+class vLLMOmniServerAdapter(ServerAdapter):
+    """
+    vLLM-Omni server adapter used in native async mode, serve as a client to request vLLM-Omni server
+    to resume/release/update weights and kv_cache.
+    """
 
     def __init__(
         self,
@@ -61,57 +57,56 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
-        super(vLLMAsyncRollout, self).__init__(config, model_config, device_mesh)
-        self.tokenizer = self.model_config.tokenizer
-        self.inference_engine: WorkerWrapperBase = None
-        self.address = self._init_zeromq()
-        self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
-            if self.model_config.lora_rank > 0
-            else {}
-        )
+        super(ServerAdapter, self).__init__(config, model_config, device_mesh)
+        self.server_handle: ray.actor.ActorHandle = None
 
-        if config.layered_summon:
+        rank = int(os.environ["RANK"])
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        rollout_world_size = (
+            self.config.tensor_model_parallel_size
+            * self.config.data_parallel_size
+            * self.config.pipeline_model_parallel_size
+        )
+        self.replica_rank = rank // rollout_world_size
+        self.rollout_rank = rank % rollout_world_size
+        self.node_rank = self.rollout_rank // local_world_size
+
+        if config.layered_summon or config.expert_parallel_size > 1:
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_OMNI_SLEEP_LEVEL
 
-    def _init_worker(self, all_kwargs: list[dict[str, Any]]):
-        """Initialize worker engine."""
-        # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
-        # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
-        # This is only a fix for vllm version < v0.13.0.
-        if is_npu_available:
-            for k in VLLM_ASCEND_REQUIRED_ENV_VARS:
-                if k not in os.environ:
-                    os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
+        self.device_uuid = get_device_uuid(get_device_id())
+        self.zmq_context = zmq.Context()
+        self.zmq_handle = f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
 
-        if not torch.distributed.is_initialized():
-            initialize_global_process_group_ray()
-        all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        device_name = "NPU" if is_npu_available else "GPU"
-        all_kwargs[0]["local_rank"] = (
-            0
-            if not ray_noset_visible_devices()
-            else int(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
-        )
-        self.vllm_config = all_kwargs[0]["vllm_config"]
-        if self.lora_config:
-            raise NotImplementedError
-        if self.config.quantization is not None:
-            raise NotImplementedError("vLLM-Omni does not support quantization yet.")
+    async def _execute_method(
+        self,
+        method: str,
+        non_block: bool = False,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict] = None,
+    ) -> Any:
+        """Execute method on inference engine via ray.
 
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
-        self.inference_engine.init_worker(all_kwargs)
+        Args:
+            method: The method name to execute on the server.
+            non_block: If True, execute the method asynchronously and return immediately.
+            timeout: Timeout for the collective_rpc call.
+            args: Positional arguments for the method.
+            kwargs: Keyword arguments for the method.
 
-    def _load_model(self, *args, **kwargs):
-        self.inference_engine.load_model(*args, **kwargs)
+        Returns:
+            The result of the method execution, or None if non_block=True.
+        """
+        if self.rollout_rank != 0:
+            return None
 
-    async def _execute_method(self, method: str | bytes, *args, **kwargs):
-        if method == "init_worker":
-            return self._init_worker(*args, **kwargs)
-        elif method == "load_model":
-            return self._load_model(*args, **kwargs)
-        else:
-            return self.inference_engine.execute_method(method, *args, **kwargs)
+        # Lazy init http server adapter because http server is launched after hybrid engine.
+        if self.server_handle is None:
+            self.server_handle = ray.get_actor(f"vllm_omni_server_{self.replica_rank}_{self.node_rank}")
+
+        future = self.server_handle.collective_rpc.remote(method, timeout=timeout, args=args, kwargs=kwargs)
+        return future if non_block else await future

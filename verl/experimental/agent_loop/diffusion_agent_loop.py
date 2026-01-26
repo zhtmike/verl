@@ -32,6 +32,7 @@ from verl.experimental.agent_loop.agent_loop import (
     _agent_loop_registry,
     get_trajectory_info,
 )
+from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward_loop import RewardLoopWorker
 from verl.protocol import DataProto
@@ -399,10 +400,18 @@ class DiffusionAgentLoopWorker:
             extra_fields[key] = temp_arr
 
         non_tensor_batch.update(extra_fields)
+
+        # Only include reward_extra_keys in meta_info if rm_scores is in batch
+        # This avoids conflicts when reward_tensor is merged later in ray_trainer.py
+        if "rm_scores" in batch.keys():
+            meta_info = {"metrics": metrics, "reward_extra_keys": reward_extra_keys}
+        else:
+            meta_info = {"metrics": metrics}
+
         return DataProto(
             batch=batch,
             non_tensor_batch=non_tensor_batch,
-            meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+            meta_info=meta_info,
         )
 
     def create_transferqueue_client(
@@ -424,13 +433,18 @@ class DiffusionAgentLoopManager(AgentLoopManager):
     """Agent loop manager that manages a group of agent loop workers."""
 
     def __init__(
-        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+        self,
+        config: DictConfig,
+        worker_group: RayWorkerGroup = None,
+        rollout_resource_pool: RayResourcePool = None,
+        rm_resource_pool: RayResourcePool = None,
     ):
         """Initialize agent loop manager.
 
         Args:
             config (DictConfig): trainer config.
             worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
+            rollout_resource_pool (RayResourcePool): Resource pool for actor rollout (Colocate or Standalone mode).
             rm_resource_pool (RayResourcePool): Resource pool for reward model (Standalone mode).
         """
         self.config = config
@@ -449,9 +463,57 @@ class DiffusionAgentLoopManager(AgentLoopManager):
         if not hasattr(self, "agent_loop_workers_class"):
             self.agent_loop_workers_class = ray.remote(DiffusionAgentLoopWorker)
 
-        self._initialize_llm_servers()
+        self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
+
+    def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
+        rollout_world_size = (
+            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+            * self.config.actor_rollout_ref.rollout.data_parallel_size
+            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+        )
+        world_size = (
+            self.worker_group.world_size
+            if self.worker_group
+            else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
+        )
+        num_replicas = world_size // rollout_world_size
+
+        rollout_config = self.config.actor_rollout_ref.rollout
+        model_config = self.config.actor_rollout_ref.model
+        self.rollout_replicas = [
+            self.rollout_replica_class(
+                replica_rank=replica_rank,
+                config=rollout_config,
+                model_config=model_config,
+                gpus_per_node=self.config.trainer.n_gpus_per_node,
+            )
+            for replica_rank in range(num_replicas)
+        ]
+
+        if self.worker_group and rollout_config.name != "trtllm":
+            self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        elif self.worker_group and rollout_config.name == "trtllm":
+            self._run_all(
+                [
+                    server.init_hybrid_colocated(self.worker_group, rollout_resource_pool)
+                    for server in self.rollout_replicas
+                ]
+            )
+        else:
+            self._run_all([server.init_standalone() for server in self.rollout_replicas])
+
+        self.server_handles = [server._server_handle for server in self.rollout_replicas]
+        self.server_addresses = [server._server_address for server in self.rollout_replicas]
+
+        print(f"DiffusionAgentLoopManager: {self.server_addresses}")
+
+        # Update Prometheus configuration with server addresses
+        if rollout_config.prometheus.enable:
+            if rollout_config.disable_log_stats:
+                raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
+            update_prometheus_config(rollout_config.prometheus, self.server_addresses, rollout_config.name)
