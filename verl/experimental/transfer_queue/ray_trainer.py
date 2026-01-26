@@ -369,7 +369,7 @@ class RayPPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(self.config)
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_critic = need_critic(self.config)
         self.ray_worker_group_cls = ray_worker_group_cls
@@ -712,7 +712,6 @@ class RayPPOTrainer:
             if self.val_reward_fn is None:
                 raise ValueError("val_reward_fn must be provided for validation.")
 
-            # TODO (TQ): Support PR https://github.com/volcengine/verl/pull/4581
             compute_reward_fields = [
                 "responses",
                 "prompts",
@@ -720,8 +719,8 @@ class RayPPOTrainer:
                 "reward_model",
                 "data_source",
             ]
-            # if "rm_scores" in batch_meta.field_names:
-            #     compute_reward_fields = ["rm_scores"]
+            if "rm_scores" in batch_meta.field_names:
+                compute_reward_fields = ["rm_scores", *set(batch_meta.extra_info["reward_extra_keys"])]
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
             result = compute_val_reward_decorated(self.val_reward_fn, val_reward_meta, return_dict=True)
@@ -1325,7 +1324,9 @@ class RayPPOTrainer:
                             "data_source",
                         ]
                         if "rm_scores" in batch_meta.field_names:
-                            compute_reward_fields.append("rm_scores")
+                            compute_reward_fields.extend(
+                                ["rm_scores", *set(batch_meta.extra_info["reward_extra_keys"])]
+                            )
 
                         compute_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
