@@ -237,7 +237,6 @@ class RolloutConfig(BaseConfig):
     sde_window_size: Optional[int] = None
     sde_window_range: Optional[int] = None
 
-
     def __post_init__(self):
         """Validate the rollout config"""
         # Deprecation warning for mode field - only async mode is supported
