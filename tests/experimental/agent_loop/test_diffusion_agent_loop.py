@@ -68,13 +68,13 @@ def test_single_turn(init_config):
         init_config, tokenizer, num_examine=0, **init_config.reward_model.get("reward_kwargs", {})
     )
 
-    raw_prompts = [[{"role": "user", "content": "A photo of cat."}]]
+    raw_prompts = ["A photo of cat."]
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
             "agent_name": np.array(["diffusion_single_turn_agent"] * len(raw_prompts)),
-            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
-            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
+            "data_source": np.array(["ocr"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": ""}] * len(raw_prompts)),
         },
     )
     n = init_config.actor_rollout_ref.rollout.n

@@ -96,8 +96,17 @@ class DiffusionSingleTurnAgentLoop(AgentLoopBase):
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         self.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
 
+        # TODO (Mike): for Qwen-Image only, refactor later
+        self.prompt_template_encode = (
+            "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, "
+            "spatial relationships of the objects and background:"
+            "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+        )
+        self.tokenizer_max_length = 1024
+        self.prompt_template_encode_start_idx = 34
+
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
-        messages = list(kwargs["raw_prompt"])
+        messages = kwargs["raw_prompt"]
 
         # 1. extract images and videos from messages
         multi_modal_data = await self.process_vision_info(messages)
@@ -105,12 +114,19 @@ class DiffusionSingleTurnAgentLoop(AgentLoopBase):
         videos = multi_modal_data.get("videos")
 
         # 2. apply chat template and tokenize
-        prompt_ids = await self.apply_chat_template(
-            messages,
-            tools=self.tool_schemas,
-            images=images,
-            videos=videos,
-        )
+        # prompt_ids = await self.apply_chat_template(
+        #     messages,
+        #     tools=self.tool_schemas,
+        #     images=images,
+        #     videos=videos,
+        # )
+        txt = self.prompt_template_encode.format(messages)
+        prompt_ids = self.tokenizer(
+            txt,
+            max_length=self.tokenizer_max_length + self.prompt_template_encode_start_idx,
+            padding=True,
+            truncation=True,
+        ).input_ids
 
         # 3. generate sequences
         metrics = {}
