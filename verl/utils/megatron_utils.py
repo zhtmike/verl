@@ -30,7 +30,7 @@ from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer
-from megatron.core.transformer import TransformerConfig
+from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
@@ -274,6 +274,12 @@ def make_megatron_module(
                 bf16=tf_config.bf16,
                 ddp_config=override_ddp_config,
             )
+
+        if isinstance(tf_config, MLATransformerConfig):
+            # Keep the same behavior as hf_to_mcore_config_dpskv3
+            from verl.models.mcore.patch import apply_patch
+
+            apply_patch()
     else:
 
         def megatron_model_provider(pre_process, post_process, vp_stage=None):
@@ -557,12 +563,37 @@ def offload_megatron_optimizer(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
         if _opt.optimizer is not None:
-            opt_state_dict_values = _opt.optimizer.state.values()
-            for v in opt_state_dict_values:
-                if "exp_avg" in v:
-                    v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-                if "exp_avg_sq" in v:
-                    v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+            # HybridDeviceOptimizer: offload all sub-optimizer states to CPU
+            # TODO: this should be a method in Megatron-LM's HybridDeviceOptimizer
+            hdo = _opt.optimizer
+            if all(hasattr(hdo, attr) for attr in ("sub_optimizers", "inner_param_to_orig_param", "state")):
+                for optimizer in hdo.sub_optimizers:
+                    for param, state in optimizer.state.items():
+                        for k, v in state.items():
+                            if not isinstance(v, torch.Tensor):
+                                continue
+                            orig_param = hdo.inner_param_to_orig_param.get(param, param)
+                            hdo.state[orig_param][k] = state[k] = v.to("cpu")
+            else:
+                opt_state_dict_values = _opt.optimizer.state.values()
+                for v in opt_state_dict_values:
+                    if "exp_avg" in v:
+                        v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+                    if "exp_avg_sq" in v:
+                        v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+
+        try:
+            # Free TransformerEngine's dummy weight gradients cache
+            # https://github.com/NVIDIA/TransformerEngine/blob/release_v2.10/transformer_engine/pytorch/module/base.py#L64
+            from transformer_engine.pytorch.module.base import _dummy_wgrads
+
+            _dummy_wgrads.clear()
+        except ImportError:
+            pass
+
+        # Free Megatron-LM's global memory buffer
+        # get_global_memory_buffer().buffer.clear()
+
         gc.collect()
         get_torch_device().empty_cache()
 
