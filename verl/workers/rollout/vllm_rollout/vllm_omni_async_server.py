@@ -363,7 +363,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             final_res = output
         assert final_res is not None
 
-        image = self._to_tensor(final_res.images[0]).tolist()
+        image = (self._to_tensor(final_res.images[0]) / 255.0).tolist()
         log_probs = None
         if sampling_params.get("logprobs", None) is not None:
             log_probs = final_res.request_output.diffusion_output["all_log_probs"][0].tolist()

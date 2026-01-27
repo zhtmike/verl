@@ -116,7 +116,7 @@ def _pil_image_to_base64(image: Image.Image) -> str:
 
 async def compute_score_ocr(
     data_source: str,
-    solution_str: Image.Image | np.ndarray | torch.Tensor,
+    solution_image: Image.Image | np.ndarray | torch.Tensor,
     ground_truth: str,
     extra_info: dict,
     reward_router_address: str,
@@ -130,7 +130,7 @@ async def compute_score_ocr(
     from verl.utils.ray_utils import get_event_loop
 
     # preprocess image to base64
-    image = solution_str
+    image = solution_image
     if isinstance(image, torch.Tensor):
         image = image.float().permute(1, 2, 0).cpu().numpy()
     if isinstance(image, np.ndarray):

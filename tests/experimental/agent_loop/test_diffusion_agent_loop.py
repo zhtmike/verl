@@ -20,8 +20,6 @@ from omegaconf import DictConfig
 
 from verl.experimental.agent_loop.diffusion_agent_loop import DiffusionAgentLoopManager
 from verl.protocol import DataProto
-from verl.trainer.ppo.reward import compute_reward, load_reward_manager
-from verl.utils import hf_tokenizer
 
 
 @pytest.fixture
@@ -45,6 +43,7 @@ def init_config() -> DictConfig:
     )
     config.data.custom_cls.path = "verl/utils/dataset/qwen_dataset.py"
     config.data.custom_cls.name = "QwenDataset"
+    config.reward_model.reward_manager = "diffusion"
 
     # TODO (Mike): we test with 1 GPU card currently, later drop these
     config.actor_rollout_ref.rollout.agent.num_workers = 1
@@ -66,17 +65,13 @@ def test_single_turn(init_config):
     )
 
     agent_loop_manager = DiffusionAgentLoopManager(init_config)
-    tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.tokenizer_path)
-    reward_fn = load_reward_manager(
-        init_config, tokenizer, num_examine=0, **init_config.reward_model.get("reward_kwargs", {})
-    )
 
     raw_prompts = ["A photo of cat."]
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
             "agent_name": np.array(["diffusion_single_turn_agent"] * len(raw_prompts)),
-            "data_source": np.array(["ocr"] * len(raw_prompts)),
+            "data_source": np.array(["jpeg_compressibility"] * len(raw_prompts)),
             "reward_model": np.array([{"style": "rule", "ground_truth": ""}] * len(raw_prompts)),
         },
     )
@@ -95,10 +90,6 @@ def test_single_turn(init_config):
 
     # check compute score
     assert result.batch["rm_scores"].shape == result.batch["responses"].shape
-    reward_tensor, reward_extra_info = compute_reward(result, reward_fn)
-    assert reward_tensor.shape == result.batch["responses"].shape
-    assert "acc" in reward_extra_info, f"reward_extra_info {reward_extra_info} should contain 'acc'"
-    assert reward_extra_info["acc"].shape == (len(result),), f"invalid acc: {reward_extra_info['acc']}"
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]

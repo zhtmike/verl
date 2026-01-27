@@ -18,7 +18,7 @@ import inspect
 from verl import DataProto
 from verl.experimental.reward_loop.reward_manager import register
 from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
-from verl.utils.reward_score import default_compute_score
+from verl.utils.reward_score import default_compute_score_image
 
 
 @register("diffusion")
@@ -37,7 +37,7 @@ class DiffusionRewardManager(RewardManagerBase):
         """
 
         super().__init__(config, tokenizer)
-        self.compute_score = compute_score or default_compute_score
+        self.compute_score = compute_score or default_compute_score_image
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
         self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
@@ -69,7 +69,7 @@ class DiffusionRewardManager(RewardManagerBase):
         if self.is_async_reward_score:
             result = await self.compute_score(
                 data_source=data_source,
-                solution_str=response_image,
+                solution_image=response_image,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
                 **extra_reward_kwargs,
@@ -79,7 +79,7 @@ class DiffusionRewardManager(RewardManagerBase):
                 None,
                 lambda: self.compute_score(
                     data_source=data_source,
-                    solution_str=response_image,
+                    solution_image=response_image,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
                     **extra_reward_kwargs,
