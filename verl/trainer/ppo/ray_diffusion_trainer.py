@@ -166,6 +166,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
+# TODO: (susan) modify based on actual rollout output
 def compute_response_mask(data: DataProto):
     """Compute the attention mask for the response part of the sequence.
 
@@ -179,7 +180,7 @@ def compute_response_mask(data: DataProto):
         torch.Tensor: The attention mask for the response tokens.
     """
     responses = data.batch["responses"]
-    response_length = responses.size(1)
+    response_length = responses.size(2) * responses.size(3)
     attention_mask = data.batch["attention_mask"]
     return attention_mask[:, -response_length:]
 
@@ -308,7 +309,7 @@ class RayFlowGRPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(config)
         # legacy reward model implementation
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
@@ -502,6 +503,10 @@ class RayFlowGRPOTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
+        if "wandb" in self.config.trainer.logger:
+            import wandb
+
+            outputs = [wandb.Image(image.float(), file_type="jpg") for image in outputs]
         samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
@@ -585,7 +590,10 @@ class RayFlowGRPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = []
+        batch_keys_to_pop = [
+            "input_ids",
+            "attention_mask",
+        ]  # TODO: (susan) not sure if they are required as rollout input
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -668,7 +676,7 @@ class RayFlowGRPOTrainer:
             test_batch.meta_info["validate"] = True
 
             # Store original inputs
-            input_ids = test_batch.batch["prompts"]
+            input_ids = test_batch.batch["input_ids"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
@@ -864,11 +872,11 @@ class RayFlowGRPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward_loop import RewardLoopManager
+                from verl.experimental.reward_loop import DiffusionRewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-                self.reward_loop_manager = RewardLoopManager(
+                self.reward_loop_manager = DiffusionRewardLoopManager(
                     config=self.config,
                     rm_resource_pool=resource_pool,
                 )
@@ -950,7 +958,7 @@ class RayFlowGRPOTrainer:
         if manager_class_fqn:
             AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
         else:
-            from verl.experimental.agent_loop import AgentLoopManager
+            pass
 
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
@@ -1131,6 +1139,7 @@ class RayFlowGRPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
+    # TODO: (susan) may reorder based on total steps?
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
@@ -1238,7 +1247,13 @@ class RayFlowGRPOTrainer:
             # step 1: convert dataproto to tensordict.
             batch_td = batch.to_tensordict()
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+            tu.assign_non_tensor(
+                batch_td,
+                calculate_entropy=True,
+                compute_loss=False,
+                height=self.config.actor_rollout_ref.rollout.image_height,
+                width=self.config.actor_rollout_ref.rollout.image_width,
+            )
             output = self.actor_rollout_wg.compute_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
@@ -1401,6 +1416,7 @@ class RayFlowGRPOTrainer:
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
+
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -1418,7 +1434,7 @@ class RayFlowGRPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                     # get images_seqlens
                     images_seqlens_all = []
-                    for multi_modal_input in batch.non_tensor_batch["multi_modal_inputs"]:
+                    for multi_modal_input in batch.non_tensor_batch.get("multi_modal_inputs", []):
                         if "image_grid_thw" not in multi_modal_input.keys():
                             continue
                         images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())

@@ -1,0 +1,86 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+  # Model config.
+  - override model@actor_rollout_ref.model: diffusion_model
+
+data:
+
+  # get ground-truth based on data_source, now support ["ocr", "prompt"]
+  data_source: "ocr"
+
+
+actor_rollout_ref:
+  # Model config
+  model:
+    model_type: "diffusion_model"
+
+  # Actor config
+  actor:
+    # PPO clip ratio
+    clip_ratio: 0.0001
+
+    # # Maximum absolute value for advantage clipping
+    clip_ratio_high: 5.0
+
+    # # inference steps
+    # num_inference_steps: 10
+
+    # # noise in SDE
+    # noise_level: 0.7
+
+    # # guidance scale for classifier-free guidance
+    # guidance_scale: 4.5
+
+    # # SDE type during rollout
+    # sde_type: "sde"
+
+  # Rollout config
+  rollout:
+
+    # image height
+    image_height: 512
+
+    # image width
+    image_width: 512
+
+    # micro batch size for rollout
+    # same as actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu if it exists
+    log_prob_micro_batch_size_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,8}
+
+    # inference steps
+    num_inference_steps: 10
+
+    # noise in SDE
+    noise_level: 0.7
+
+    # guidance scale for classifier-free guidance
+    guidance_scale: 4.5
+
+    # SDE type during rollout
+    sde_type: "sde"
+
+    # SDE window size
+    sde_window_size: null
+
+    # SDE window range
+    sde_window_range: null
+
+    # Sampling parameters used during validation.
+    val_kwargs:
+
+      noise_level: 0.7
+
+      num_inference_steps: 10
+
+      seed: 42
+
+  # Algorithm config
+  algorithm:
+
+    # Whether to normalize advantages using global standard deviation
+    global_std: True

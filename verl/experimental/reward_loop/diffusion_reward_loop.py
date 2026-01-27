@@ -68,7 +68,10 @@ class DiffusionRewardLoopWorker:
         self.loop = get_event_loop()
 
     def _init_reward_fn(self):
-        input_tokenizer_local_path = copy_to_local(os.path.join(self.config.actor_rollout_ref.model.path, "tokenizer"))
+        tokenizer_path = self.config.actor_rollout_ref.model.get(
+            "tokenizer_path", os.path.join(self.config.actor_rollout_ref.model.path, "tokenizer")
+        )
+        input_tokenizer_local_path = copy_to_local(tokenizer_path)
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
         self.reward_model_tokenizer = None
         if self.config.reward_model.enable:
@@ -179,7 +182,7 @@ class DiffusionRewardLoopWorker:
         chat: list = list(data_item.non_tensor_batch["raw_prompt"])
 
         # extract response
-        prompt_str = self.input_tokenizer.decode(data_item.batch["prompts"], skip_special_tokens=True)
+        prompt_str = self.input_tokenizer.decode(data_item.batch["input_ids"], skip_special_tokens=True)
         response_image = data_item.batch["responses"]
 
         # convert to PIL Image
@@ -297,7 +300,7 @@ class DiffusionRewardLoopManager:
 
         # compute rm score
         scores = [item["reward_score"] for item in outputs_flat]
-        rm_scores = torch.tensor(scores, dtype=torch.float32)
+        rm_scores = torch.tensor(scores, dtype=torch.float32).unsqueeze(-1)
         batch = TensorDict({"rm_scores": rm_scores}, batch_size=len(data))
 
         reward_extra_infos = [output.get("reward_extra_info", {}) for output in outputs_flat]

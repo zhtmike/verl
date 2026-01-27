@@ -60,9 +60,8 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from ..base import BaseEngine, EngineRegistry
-from ..utils import enable_full_determinism, postprocess_batch_func, prepare_micro_batches
-from .transformer_impl import EngineEvalModeCtx, EngineTrainModeCtx
+from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
+from ..utils import enable_full_determinism, prepare_micro_batches
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -87,7 +86,7 @@ class DiffusersFSDPEngine(BaseEngine):
         checkpoint_config: CheckpointConfig,
     ):
         """
-        Initialize the FSDPEngine.
+        Initialize the DiffusersFSDPEngine.
 
         Sets up distributed device meshes, LoRA, and offload policies based on config.
 
@@ -196,10 +195,10 @@ class DiffusersFSDPEngine(BaseEngine):
             warnings.simplefilter("ignore")
 
             module = AutoModel.from_pretrained(
-                pretrained_model_name_or_path=self.model_config.local_path,
+                self.model_config.local_path,
                 torch_dtype=torch_dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
-                **self.model_config.hf_config,
+                subfolder="transformer",
             )
 
             use_liger = self.model_config.use_liger
@@ -347,7 +346,9 @@ class DiffusersFSDPEngine(BaseEngine):
         from ...utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
 
         scheduler = FlowMatchSDEDiscreteScheduler.from_pretrained(
-            pretrained_model_name_or_path=self.model_config.local_path, subfolder="scheduler"
+            pretrained_model_name_or_path=self.model_config.local_path,
+            subfolder="scheduler",
+            use_dynamic_shifting=False,
         )
         scheduler.set_timesteps(self.model_config.num_inference_steps, device=get_device_name())
         return scheduler
@@ -477,6 +478,11 @@ class DiffusersFSDPEngine(BaseEngine):
         ctx = torch.no_grad() if forward_only else nullcontext()
 
         for micro_batch in micro_batches:
+            meta_info_lst = {
+                "model_output": [],
+                "loss": [],
+                "metrics": [],
+            }
             for step in range(tu.get_non_tensor_data(micro_batch, "cached_steps", 10)):
                 with ctx:
                     loss, meta_info = self.forward_step(
@@ -485,11 +491,76 @@ class DiffusersFSDPEngine(BaseEngine):
 
                     if not forward_only:
                         loss.backward()
+                for key, val in meta_info.items():
+                    meta_info_lst[key].append(val)
 
-            output_lst.append(meta_info)
+            output_lst.append(meta_info_lst)
 
         # postprocess and return
-        return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
+        return self.postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
+
+    def postprocess_batch_func(self, output_lst, indices, data: TensorDict):
+        """postprocess the output of a forward_backward_batch.
+        output_lst is a list of dict containing outputs for each micro-batch
+        reorder entropy and outputs. Return None for other pp ranks
+        only on last rank. It should be on every tp rank
+
+        each losses_reduced contains 1. model_output, 2. loss, 3. metrics.
+        """
+
+        from verl.utils.py_functional import append_to_dict
+        # from verl.utils.seqlen_balancing import restore_dynamic_batch
+
+        # use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
+
+        # losses_reduced is a list of dict containing outputs for each micro-batch
+        # reorder entropy and outputs. Return None for other pp ranks
+        # only on last rank. It should be on every tp rank
+
+        # losses_reduced contains 1. model_output, 2. loss, 3. metrics.
+        # We perform reverse
+
+        model_output = {}
+        losses = []
+        aggregated_metrics = {}
+
+        for o in output_lst:
+            # model output
+            model_output_lst = {}
+            if "model_output" in o:
+                for model_output_dict in o["model_output"]:
+                    for key, val in model_output_dict.items():
+                        if key not in model_output_lst:
+                            model_output_lst[key] = []
+                        model_output_lst[key].append(val)
+                for key, val in model_output_lst.items():
+                    if key not in model_output:
+                        model_output[key] = []
+                    model_output[key].append(torch.stack(val, dim=1))  # (bsz, steps, ...)
+            # loss
+            if "loss" in o:
+                losses.append(o["loss"])
+
+            # metrics
+            if "metrics" in o:  # TODO: (susan) not sure
+                for metrics in o["metrics"]:
+                    append_to_dict(aggregated_metrics, metrics)
+
+        # concat results from micro batches
+
+        for key, val in model_output.items():
+            model_output[key] = torch.concat(val, dim=0)  # (global_bsz, steps, ...)
+            # reverse with dynamic bsz
+            # if use_dynamic_bsz:
+            #     model_output[key] = restore_dynamic_batch(model_output[key], indices)
+
+        output = {
+            "model_output": model_output,  # a dict of tensors in shape (global_bsz, steps, ...)
+            "loss": losses,  # micro-batch step-wise losses
+            "metrics": aggregated_metrics,
+        }
+
+        return output
 
     def prepare_model_inputs(self, micro_batch: TensorDict, step: int):
         latents = micro_batch["latents"]
@@ -504,7 +575,7 @@ class DiffusersFSDPEngine(BaseEngine):
         vae_scale_factor = tu.get_non_tensor_data(data=micro_batch, key="vae_scale_factor", default=8)
         img_shapes = [[(1, height // vae_scale_factor // 2, width // vae_scale_factor // 2)]]
 
-        if self.model_config.guidance_embeds:
+        if getattr(self.module.config, "guidance_embeds", False):
             guidance = torch.full([1], self._guidance_scale, dtype=torch.float32)
         else:
             guidance = None
@@ -521,7 +592,7 @@ class DiffusersFSDPEngine(BaseEngine):
             "encoder_hidden_states_mask": prompt_embeds_mask,
             "encoder_hidden_states": prompt_embeds,
             "img_shapes": img_shapes,
-            "text_seq_lens": txt_seq_lens,
+            "txt_seq_lens": txt_seq_lens,
             "return_dict": False,
         }
 
@@ -532,7 +603,7 @@ class DiffusersFSDPEngine(BaseEngine):
             "encoder_hidden_states_mask": negative_prompt_embeds_mask,
             "encoder_hidden_states": negative_prompt_embeds,
             "img_shapes": img_shapes,
-            "text_seq_lens": negative_txt_seq_lens,
+            "txt_seq_lens": negative_txt_seq_lens,
             "return_dict": False,
         }
 
@@ -542,7 +613,7 @@ class DiffusersFSDPEngine(BaseEngine):
         use_kl_loss = tu.get_non_tensor_data(micro_batch, "use_kl_loss", False)
         log_prob, prev_sample_mean, std_dev_t = output
         model_output = {}
-        model_output["log_prob"] = log_prob
+        model_output["log_probs"] = log_prob
         if use_kl_loss:
             model_output["prev_sample_mean"] = prev_sample_mean
             model_output["std_dev_t"] = std_dev_t
@@ -552,9 +623,9 @@ class DiffusersFSDPEngine(BaseEngine):
         latents = micro_batch["latents"]
         timesteps = micro_batch["timesteps"]
 
-        noise_pred = self.module(**model_inputs)
+        noise_pred = self.module(**model_inputs)[0]
         if self._guidance_scale > 1.0:
-            neg_noise_pred = self.module(**negative_model_inputs)
+            neg_noise_pred = self.module(**negative_model_inputs)[0]
             comb_pred = neg_noise_pred + self._guidance_scale * (noise_pred - neg_noise_pred)
             cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
             noise_norm = torch.norm(comb_pred, dim=-1, keepdim=True)
@@ -579,6 +650,8 @@ class DiffusersFSDPEngine(BaseEngine):
             model_inputs=model_inputs, negative_model_inputs=negative_model_inputs, micro_batch=micro_batch, step=step
         )
         model_output = self.prepare_model_outputs(output=raw_output, micro_batch=micro_batch)
+        micro_batch["old_log_probs"] = micro_batch["old_log_probs"][:, step]
+        micro_batch["advantages"] = micro_batch["advantages"][:, step]
 
         if loss_function is not None:
             loss, metrics = loss_function(
@@ -758,3 +831,45 @@ class DiffusersFSDPEngine(BaseEngine):
             yield
         finally:
             self.module.enable_adapters()
+
+
+class EngineEvalModeCtx(BaseEngineCtx):
+    def __init__(self, engine: DiffusersFSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="eval", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.eval()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if self.engine.engine_config.fsdp_size > 1:
+            if fsdp_version(self.engine.module) == 1:
+                self.engine.module._handle.reshard(True)
+            elif fsdp_version(self.engine.module) == 2:
+                self.engine.module.reshard()
+
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+class EngineTrainModeCtx(BaseEngineCtx):
+    def __init__(self, engine: DiffusersFSDPEngine, **kwargs):
+        super().__init__(engine=engine, mode="train", **kwargs)
+
+    def __enter__(self):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        super().__enter__()
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.train()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        assert isinstance(self.engine, DiffusersFSDPEngine)
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.optimizer_zero_grad()
+        super().__exit__(exc_type, exc_value, traceback)

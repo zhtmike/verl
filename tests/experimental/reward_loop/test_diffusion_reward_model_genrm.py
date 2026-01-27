@@ -77,12 +77,13 @@ def test_diffusion_reward_model_manager():
     reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
 
     config.actor_rollout_ref.model.path = rollout_model_name
+    config.actor_rollout_ref.model.tokenizer_path = os.path.join(rollout_model_name, "tokenizer")
     config.custom_reward_function.path = "tests/experimental/reward_loop/reward_fn.py"
     config.custom_reward_function.name = "compute_score_ocr"
     config.reward_model.reward_manager = "diffusion"
     config.reward_model.enable = True
     config.reward_model.enable_resource_pool = True
-    config.reward_model.n_gpus_per_node = 8
+    config.reward_model.n_gpus_per_node = 2
     config.reward_model.nnodes = 1
     config.reward_model.model.path = reward_model_name
     config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
@@ -96,7 +97,7 @@ def test_diffusion_reward_model_manager():
     reward_loop_manager = DiffusionRewardLoopManager(config)
 
     # 2. init test data
-    rollout_tokenizer = hf_tokenizer(rollout_model_name)
+    rollout_tokenizer = hf_tokenizer(config.actor_rollout_ref.model.tokenizer_path)
     data = create_data_samples(rollout_tokenizer)
 
     # 3. generate responses
