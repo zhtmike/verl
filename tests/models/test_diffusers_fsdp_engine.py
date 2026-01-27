@@ -142,7 +142,7 @@ def create_data_samples() -> DataProto:
     data.meta_info["cached_steps"] = data.batch["timesteps"].shape[1]
     data.meta_info["global_token_num"] = torch.sum(data.batch["attention_mask"], dim=-1).tolist()
     data.meta_info["use_dynamic_bsz"] = False
-    data.meta_info["micro_batch_size_per_gpu"] = 2
+    data.meta_info["micro_batch_size_per_gpu"] = 4
     data.meta_info["height"] = height
     data.meta_info["width"] = width
 
@@ -183,7 +183,7 @@ def test_diffusers_fsdp_engine(strategy):
 
     # train batch
     data_td = create_data_samples().to_tensordict()
-    ppo_mini_batch_size = 2
+    ppo_mini_batch_size = 8
     ppo_epochs = actor_config.ppo_epochs
     seed = 42
     shuffle = actor_config.shuffle
