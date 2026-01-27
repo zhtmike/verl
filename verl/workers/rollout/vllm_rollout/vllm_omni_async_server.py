@@ -28,7 +28,7 @@ from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncOmniEngineArgs
 from vllm_omni.entrypoints import AsyncOmni
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
-from vllm_omni.outputs import RequestOutput
+from vllm_omni.outputs import OmniRequestOutput
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
@@ -151,6 +151,9 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             engine_kwargs["limit_mm_per_prompt"] = {"image": self.config.get("limit_images")}
         if self.config.cudagraph_capture_sizes:
             engine_kwargs["cuda_graph_sizes"] = self.config.cudagraph_capture_sizes
+
+        # TODO (mike): support custom pipeline for cli
+        engine_kwargs.pop("custom_pipeline", None)
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
@@ -293,7 +296,15 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
-        engine_client = AsyncOmni(model=engine_args.model)
+        kwargs = {"model": engine_args.model}
+
+        # TODO (mike): read custom_pipeline from CLI
+        custom_pipeline = self.config.engine_kwargs.get("vllm_omni", {}).get("custom_pipeline", None)
+        if custom_pipeline is not None:
+            kwargs["enable_dummy_pipeline"] = True
+            kwargs["custom_pipeline_args"] = {"pipeline_class": custom_pipeline}
+
+        engine_client = AsyncOmni(**kwargs)
         app = build_app(args)
         await omni_init_app_state(engine_client, None, app.state, args)
 
@@ -335,6 +346,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
                 )
 
         generator = self.engine.generate(
+            prompt="",  # TODO (Mike): drop empty prompt
             prompt_ids=prompt_ids,
             request_id=request_id,
             lora_request=lora_request,
@@ -343,18 +355,18 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         )
 
         # Get final response
-        final_res: Optional[RequestOutput] = None
+        final_res: Optional[OmniRequestOutput] = None
         async for output in generator:
             final_res = output
         assert final_res is not None
 
-        image = final_res.outputs[0].image
+        image = final_res.images[0]
         log_probs = None
-        if sampling_params.logprobs is not None:
-            log_probs = final_res.outputs[0].logprobs
+        if sampling_params.get("logprobs", None) is not None:
+            log_probs = final_res.diffusion_output.all_log_probs
 
         # Determine stop reason from finish_reason
-        finish_reason = final_res.outputs[0].finish_reason
+        finish_reason = final_res.outputs.finish_reason
         if finish_reason == "abort":
             stop_reason = "aborted"
         elif finish_reason in ("stop", "length"):

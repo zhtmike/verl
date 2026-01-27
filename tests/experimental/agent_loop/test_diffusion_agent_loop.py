@@ -40,6 +40,9 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
+    config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline = (
+        "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
+    )
     config.data.custom_cls.path = "verl/utils/dataset/qwen_dataset.py"
     config.data.custom_cls.name = "QwenDataset"
 

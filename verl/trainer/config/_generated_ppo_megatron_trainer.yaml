@@ -235,6 +235,8 @@ actor_rollout_ref:
     multi_stage_wake_up: false
     engine_kwargs:
       vllm: {}
+      vllm_omni:
+        custom_pipeline: null
       sglang: {}
       trtllm: {}
     val_kwargs:
@@ -306,7 +308,6 @@ actor_rollout_ref:
     use_shm: false
     trust_remote_code: false
     custom_chat_template: null
-    custom_pipeline: null
     external_lib: null
     override_config:
       model_config: {}

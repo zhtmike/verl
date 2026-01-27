@@ -51,6 +51,8 @@ class ImageOutput(BaseModel):
     """logprobs of generated image"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
+    extra_fields: dict[str, Any] = {}
+    """Extra fields for dynamic addition."""
 
 
 class RolloutMode(Enum):

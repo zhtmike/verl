@@ -40,14 +40,15 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
     ):
         dtype = dtype or self.text_encoder.dtype
 
+        if attention_mask is None:
+            attention_mask = torch.ones_like(prompt_ids, dtype=torch.long)
+
         prompt_ids = prompt_ids.unsqueeze(0) if prompt_ids.ndim == 1 else prompt_ids
-        attention_mask = (
-            attention_mask.unsqueeze(0) if attention_mask is not None and attention_mask.ndim == 1 else attention_mask
-        )
+        attention_mask = attention_mask.unsqueeze(0) if attention_mask.ndim == 1 else attention_mask
         drop_idx = self.prompt_template_encode_start_idx
         encoder_hidden_states = self.text_encoder(
             input_ids=prompt_ids.to(self.device),
-            attention_mask=attention_mask.to(self.device) if attention_mask is not None else None,
+            attention_mask=attention_mask.to(self.device),
             output_hidden_states=True,
         )
         hidden_states = encoder_hidden_states.hidden_states[-1]
@@ -192,7 +193,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
     def forward(
         self,
         req: OmniDiffusionRequest,
-        prompt_ids: torch.Tensor | None = None,
+        prompt_ids: torch.Tensor | list[int] | None = None,
         prompt_mask: torch.Tensor | None = None,
         negative_prompt_ids: torch.Tensor | None = None,
         negative_prompt_mask: torch.Tensor | None = None,
@@ -242,6 +243,8 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         self._interrupt = False
 
         if prompt_ids is not None:
+            if isinstance(prompt_ids, list):
+                prompt_ids = torch.tensor(prompt_ids, device=self.device)
             batch_size = prompt_ids.shape[0] if prompt_ids.ndim == 2 else 1
         else:
             batch_size = prompt_embeds.shape[0]
