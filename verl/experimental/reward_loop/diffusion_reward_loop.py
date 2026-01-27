@@ -183,7 +183,7 @@ class DiffusionRewardLoopWorker:
         chat: list = list(data_item.non_tensor_batch["raw_prompt"])
 
         # extract response
-        prompt_str = self.input_tokenizer.decode(data_item.batch["prompts"], skip_special_tokens=True)
+        prompt_str = self.input_tokenizer.decode(data_item.batch["input_ids"], skip_special_tokens=True)
         response_image = data_item.batch["responses"]
 
         # convert to PIL Image

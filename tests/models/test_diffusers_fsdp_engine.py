@@ -53,6 +53,8 @@ def create_training_config(model_type, strategy, device_count, model):
                 overrides=[
                     "path=" + path,
                     "tokenizer_path=" + tokenizer_path,
+                    "lora_rank=8",
+                    "lora_alpha=16",
                 ],
             )
         model_config: DiffusersModelConfig = omega_conf_to_dataclass(cfg)
@@ -68,10 +70,11 @@ def create_training_config(model_type, strategy, device_count, model):
                     "ppo_micro_batch_size_per_gpu=8",
                     "optim.lr=1e-4",
                     "optim.weight_decay=0.0001",
-                    "fsdp_config.param_offload=True",
-                    "fsdp_config.optimizer_offload=True",
-                    "fsdp_config.model_dtype='bfloat16'",
-                    "fsdp_config.dtype='bfloat16'",
+                    "fsdp_config.param_offload=False",
+                    "fsdp_config.optimizer_offload=False",
+                    "fsdp_config.model_dtype='float16'",
+                    "fsdp_config.dtype='float16'",
+                    "+fsdp_config.mixed_precision.param_dtype='float16'",
                     "fsdp_config.forward_only=False",
                     "fsdp_config.fsdp_size=" + str(fsdp_size),
                     "fsdp_config.ulysses_sequence_parallel_size=" + str(cp),
@@ -139,7 +142,9 @@ def create_data_samples() -> DataProto:
     data.meta_info["cached_steps"] = data.batch["timesteps"].shape[1]
     data.meta_info["global_token_num"] = torch.sum(data.batch["attention_mask"], dim=-1).tolist()
     data.meta_info["use_dynamic_bsz"] = False
-    data.meta_info["micro_batch_size_per_gpu"] = 4
+    data.meta_info["micro_batch_size_per_gpu"] = 2
+    data.meta_info["height"] = height
+    data.meta_info["width"] = width
 
     return data
 
@@ -163,7 +168,7 @@ def test_diffusers_fsdp_engine(strategy):
 
     # forward only without loss function
     data_td = create_data_samples().to_tensordict()
-    tu.assign_non_tensor(data_td, compute_loss=False, height=512, width=512)
+    tu.assign_non_tensor(data_td, compute_loss=False)
     output = wg.infer_batch(data_td)
     output_dict = output.get()
 
@@ -178,7 +183,7 @@ def test_diffusers_fsdp_engine(strategy):
 
     # train batch
     data_td = create_data_samples().to_tensordict()
-    ppo_mini_batch_size = 8
+    ppo_mini_batch_size = 2
     ppo_epochs = actor_config.ppo_epochs
     seed = 42
     shuffle = actor_config.shuffle

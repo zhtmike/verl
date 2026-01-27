@@ -220,7 +220,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
             for batch_idx, mini_batch_td in enumerate(dataloader):
                 # add global token num
-                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
+                if mini_batch_td["input_ids"].is_nested:
+                    global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
+                else:
+                    global_token_num = torch.sum(mini_batch_td["attention_mask"], dim=-1).tolist()
                 # allgather from dp rank
                 global_token_num_output = [None] * self.engine.get_data_parallel_size()
                 torch.distributed.all_gather_object(

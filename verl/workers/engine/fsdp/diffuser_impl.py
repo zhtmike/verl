@@ -653,6 +653,8 @@ class DiffusersFSDPEngine(BaseEngine):
             model_inputs=model_inputs, negative_model_inputs=negative_model_inputs, micro_batch=micro_batch, step=step
         )
         model_output = self.prepare_model_outputs(output=raw_output, micro_batch=micro_batch)
+        micro_batch["old_log_probs"] = micro_batch["old_log_probs"][:, step]
+        micro_batch["advantages"] = micro_batch["advantages"][:, step]
 
         if loss_function is not None:
             loss, metrics = loss_function(
