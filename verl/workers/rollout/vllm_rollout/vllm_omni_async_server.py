@@ -21,6 +21,7 @@ from pprint import pprint
 from typing import Any, Optional
 
 import ray
+import torchvision.transforms as T
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
 from vllm.lora.request import LoRARequest
@@ -127,6 +128,8 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             self._master_port = None
             self._dp_rpc_port = None
             self._dp_master_port = None
+
+        self._to_tensor = T.PILToTensor()
 
         logger.info(
             f"vLLMOmniHttpServer, replica_rank: {self.replica_rank}, node_rank: {self.node_rank}, "
@@ -360,13 +363,33 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             final_res = output
         assert final_res is not None
 
-        image = final_res.images[0]
+        image = self._to_tensor(final_res.images[0]).tolist()
         log_probs = None
         if sampling_params.get("logprobs", None) is not None:
-            log_probs = final_res.diffusion_output.all_log_probs
+            log_probs = final_res.request_output.diffusion_output["all_log_probs"][0].tolist()
+
+        all_latents = final_res.request_output.diffusion_output["all_latents"][0]
+        all_timesteps = final_res.request_output.diffusion_output["all_timesteps"][0]
+        prompt_embeds = final_res.request_output.diffusion_output["prompt_embeds"][0]
+        prompt_embeds_mask = final_res.request_output.diffusion_output["prompt_embeds_mask"][0]
+        negative_prompt_embeds = final_res.request_output.diffusion_output["negative_prompt_embeds"]
+        negative_prompt_embeds_mask = final_res.request_output.diffusion_output["negative_prompt_embeds_mask"]
+
+        extra_fields = {
+            "all_latents": all_latents,
+            "all_timesteps": all_timesteps,
+            "prompt_embeds": prompt_embeds,
+            "prompt_embeds_mask": prompt_embeds_mask,
+            "negative_prompt_embeds": negative_prompt_embeds[0] if negative_prompt_embeds is not None else None,
+            "negative_prompt_embeds_mask": negative_prompt_embeds_mask[0]
+            if negative_prompt_embeds_mask is not None
+            else None,
+        }
 
         # Determine stop reason from finish_reason
-        finish_reason = final_res.outputs.finish_reason
+        # TODO (mike): drop hard code
+        finish_reason = "stop"
+        # finish_reason = final_res.request_output.finish_reason
         if finish_reason == "abort":
             stop_reason = "aborted"
         elif finish_reason in ("stop", "length"):
@@ -374,7 +397,18 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         else:
             stop_reason = finish_reason  # for more stop reason in the future
 
-        return ImageOutput(image=image, log_probs=log_probs, stop_reason=stop_reason)
+        num_preempted = None
+
+        if hasattr(final_res.request_output, "num_preempted"):
+            num_preempted = final_res.request_output.num_preempted
+
+        return ImageOutput(
+            image=image,
+            log_probs=log_probs,
+            stop_reason=stop_reason,
+            num_preempted=num_preempted,
+            extra_fields=extra_fields,
+        )
 
     async def sleep(self):
         if self.rollout_mode == RolloutMode.HYBRID:

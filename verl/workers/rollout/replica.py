@@ -46,11 +46,13 @@ class TokenOutput(BaseModel):
 
 class ImageOutput(BaseModel):
     image: list[list[list[float]]]
-    """generated image tensor (HWC format)"""
+    """generated image tensor (CHW format)"""
     log_probs: Optional[list[float]] = None
     """logprobs of generated image"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
+    num_preempted: Optional[int] = None
+    """number of preempted times for metric calculation"""
     extra_fields: dict[str, Any] = {}
     """Extra fields for dynamic addition."""
 
