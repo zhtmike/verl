@@ -307,6 +307,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             kwargs["enable_dummy_pipeline"] = True
             kwargs["custom_pipeline_args"] = {"pipeline_class": custom_pipeline}
 
+        # TODO (mike): support parsing engine config from CLI
         engine_client = AsyncOmni(**kwargs)
         app = build_app(args)
         await omni_init_app_state(engine_client, None, app.state, args)
@@ -317,6 +318,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_headless(self, args: argparse.Namespace):
         """Run headless server in a separate thread."""
 
+        # TODO (mike): support multi node
         # Create the EngineConfig.
         raise NotImplementedError("vLLM-Omni headless mode is not implemented yet.")
 

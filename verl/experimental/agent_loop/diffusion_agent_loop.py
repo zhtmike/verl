@@ -327,13 +327,20 @@ class DiffusionAgentLoopWorker:
             output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
 
     def _postprocess(self, inputs: list[_InternalDiffusionAgentLoopOutput]) -> DataProto:
-        """Process the padded outputs from _run_agent_loop and combine them into a batch."""
+        """Process the outputs from _run_agent_loop and combine them into a batch."""
         # Convert lists back to tensors and stack them to create a batch.
         prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
         response_image = torch.cat([input.response_image for input in inputs], dim=0)
         optional_outputs = {}
         if inputs[0].response_logprobs is not None:
             optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
+
+        # Handle extra fields that are tensors
+        extra_keys = [k for k, v in inputs[0].extra_fields.items() if isinstance(v, torch.Tensor)]
+        for key in extra_keys:
+            optional_outputs[key] = torch.cat([input.extra_fields[key] for input in inputs], dim=0)
+            for input in inputs:
+                del input.extra_fields[key]
 
         batch = TensorDict(
             {

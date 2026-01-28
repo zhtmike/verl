@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 import ray
 from omegaconf import DictConfig
+from PIL import Image
 
 from verl.experimental.agent_loop.diffusion_agent_loop import DiffusionAgentLoopManager
 from verl.protocol import DataProto
@@ -66,7 +67,7 @@ def test_single_turn(init_config):
 
     agent_loop_manager = DiffusionAgentLoopManager(init_config)
 
-    raw_prompts = ["A photo of cat."]
+    raw_prompts = ["A photo of cat.", "A photo of dog."]
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
@@ -80,20 +81,28 @@ def test_single_turn(init_config):
     result = agent_loop_manager.generate_sequences(prompts=batch)
     assert len(result) == len(raw_prompts) * n
 
-    # check result
-    seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
-    assert result.batch["input_ids"].size(1) == seq_len
-    assert result.batch["attention_mask"].size(1) == seq_len
-
-    if init_config.actor_rollout_ref.rollout.calculate_log_probs:
-        assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
+    expected_batch_keys = [
+        "responses",
+        "all_latents",
+        "all_timesteps",
+        "prompt_embeds",
+        "prompt_embeds_mask",
+    ]
+    for key in expected_batch_keys:
+        assert key in result.batch, f"Key {key} not found in result batch."
 
     # check compute score
-    assert result.batch["rm_scores"].shape == result.batch["responses"].shape
+    assert result.batch["rm_scores"].shape[0] == result.batch["responses"].shape[0]
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
     assert np.all(num_turns == 2)
+
+    # TODO: for visualization, drop later
+    images_pil = (result.batch["responses"].permute(0, 2, 3, 1).numpy() * 255.0).astype("uint8")
+    for i, image in enumerate(images_pil):
+        image_path = os.path.join(f"{i}.jpg")
+        Image.fromarray(image).save(image_path)
 
     print("Test passed!")
     ray.shutdown()
