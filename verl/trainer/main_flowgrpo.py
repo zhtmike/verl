@@ -319,7 +319,6 @@ class TaskRunner:
         )
 
         # Load the reward manager for training and validation.
-        reward_fn, val_reward_fn = None, None
         if not config.reward_model.use_reward_loop:  # TODO: (susan) change to use reward loop as well?
             reward_fn = load_reward_manager(
                 config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
@@ -327,6 +326,8 @@ class TaskRunner:
             val_reward_fn = load_reward_manager(
                 config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
             )
+        else:
+            reward_fn, val_reward_fn = None, None
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 

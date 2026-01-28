@@ -176,6 +176,12 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 
         hf_overrides = {}
 
+        compilation_config = engine_kwargs.get("compilation_config", None)
+        if compilation_config is None:
+            compilation_config = json.dumps({"cudagraph_mode": "FULL_DECODE_ONLY"})
+        else:
+            cudagraph_mode = compilation_config.get("cudagraph_mode", "FULL_DECODE_ONLY")
+            compilation_config = json.dumps({"cudagraph_mode": cudagraph_mode})
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -190,7 +196,6 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             "enable_prefix_caching": self.config.enable_prefix_caching,
             "enable_sleep_mode": self.config.enable_sleep_mode,
             "logprobs_mode": self.config.logprobs_mode,
-            "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
             "disable_log_stats": self.config.disable_log_stats,
@@ -200,7 +205,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             "quantization": quantization,
             "hf_overrides": hf_overrides,
             "scheduling_policy": self.config.scheduling_policy,
-            "compilation_config": json.dumps({"cudagraph_mode": "FULL_DECODE_ONLY"}),
+            "compilation_config": compilation_config,
             **engine_kwargs,
         }
 
@@ -412,12 +417,29 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             extra_fields=extra_fields,
         )
 
-    async def sleep(self):
+    async def wake_up(self):
+        if self.node_rank != 0:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+            # In hybrid mode, rollout is wake up in `update_weights`
+            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            if self.node_rank == 0:
-                await self.engine.sleep(level=1)
+            # Directly call engine to wake up without sync weights.
+            await self.engine.wake_up(tags=["weights"])
+            await self.engine.reset_prefix_cache()
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip wake_up in standalone mode")
+
+    async def sleep(self):
+        if self.node_rank != 0 or not self.config.free_cache_engine:
+            return
+
+        if self.rollout_mode == RolloutMode.HYBRID:
+            # Don't use engine.sleep(level=2) here
+            await self.engine.collective_rpc("sleep", kwargs={"level": 2})
+        elif self.rollout_mode == RolloutMode.COLOCATED:
+            await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 

@@ -247,7 +247,7 @@ class DiffusionAgentLoopWorker:
                 tokenizer=self.tokenizer,
                 processor=self.processor,
                 dataset_cls=self.dataset_cls,
-                dataset_config=self.config.data,
+                dataset_config=DictConfigWrap(self.config.data),
             )
             output: DiffusionAgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
             return await self._agent_loop_postprocess(output, **kwargs)
@@ -446,10 +446,6 @@ class DiffusionAgentLoopManager(AgentLoopManager):
 
         self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
-
-        # Initially we're in sleep mode.
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
 
     def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
         rollout_world_size = (
