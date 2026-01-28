@@ -47,7 +47,6 @@ def init_config() -> DictConfig:
     config.reward_model.reward_manager = "diffusion"
 
     # TODO (Mike): we test with 1 GPU card currently, later drop these
-    config.actor_rollout_ref.rollout.agent.num_workers = 1
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
     config.trainer.n_gpus_per_node = 1
 

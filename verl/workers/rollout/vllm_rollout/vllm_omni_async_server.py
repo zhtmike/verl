@@ -24,11 +24,11 @@ import ray
 import torchvision.transforms as T
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
-from vllm.lora.request import LoRARequest
 from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncOmniEngineArgs
 from vllm_omni.entrypoints import AsyncOmni
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
+from vllm_omni.lora.request import LoRARequest
 from vllm_omni.outputs import OmniRequestOutput
 
 from verl.single_controller.ray import RayClassWithInitArgs
@@ -299,7 +299,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
-        kwargs = {"model": engine_args.model}
+        kwargs = {"model": engine_args.model, "enable_sleep_mode": self.config.enable_sleep_mode}
 
         # TODO (mike): read custom_pipeline from CLI
         custom_pipeline = self.config.engine_kwargs.get("vllm_omni", {}).get("custom_pipeline", None)
