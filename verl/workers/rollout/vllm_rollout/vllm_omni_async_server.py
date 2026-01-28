@@ -304,7 +304,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
-        kwargs = {"model": engine_args.model}
+        kwargs = {"model": engine_args.model, "enable_sleep_mode": engine_args.enable_sleep_mode}
 
         # TODO (mike): read custom_pipeline from CLI
         custom_pipeline = self.config.engine_kwargs.get("vllm_omni", {}).get("custom_pipeline", None)
