@@ -172,6 +172,9 @@ class DiffusionAgentLoopWorker:
             sampling_params["num_inference_steps"] = config.val_kwargs.num_inference_steps
             sampling_params["seed"] = config.val_kwargs.seed
             sampling_params["noise_level"] = config.val_kwargs.noise_level
+        else:
+            sampling_params["num_inference_steps"] = config.num_inference_steps
+            sampling_params["noise_level"] = config.noise_level
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
@@ -433,9 +436,9 @@ class DiffusionAgentLoopManager(AgentLoopManager):
         self.reward_model_manager = None
         self.reward_router_address = None
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            from verl.experimental.reward_loop import RewardModelManager
+            from verl.experimental.reward_loop import DiffusionRewardLoopManager
 
-            self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
+            self.reward_model_manager = DiffusionRewardLoopManager(config.reward_model, rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()
 
         # for recipe to change

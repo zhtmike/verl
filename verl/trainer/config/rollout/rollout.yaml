@@ -116,6 +116,12 @@ over_sample_rate: 0
 # This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
+# number of inference steps for diffusion model rollout
+num_inference_steps: 10
+
+# noise level for diffusion model rollout
+noise_level: 0.7
+
 # Extra inference engine arguments (vllm, sglang, trtllm), please refer vllm/sglang/trtllm official doc for detail
 engine_kwargs:
 
@@ -154,6 +160,15 @@ val_kwargs:
 
   # Whether to sample during training rollout. False uses greedy sampling.
   do_sample: False
+
+  # number of inference steps for diffusion model rollout
+  num_inference_steps: 40
+
+  # noise level for diffusion model rollout
+  noise_level: 0.0
+
+  # random seed for validation
+  seed: 42
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:

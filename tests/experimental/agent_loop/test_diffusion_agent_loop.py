@@ -37,6 +37,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.n = 4
+    config.actor_rollout_ref.rollout.num_inference_steps = 40
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline = (
@@ -65,7 +66,7 @@ def test_single_turn(init_config):
 
     agent_loop_manager = DiffusionAgentLoopManager(init_config)
 
-    raw_prompts = ["A photo of cat.", "A photo of dog."]
+    raw_prompts = ["A photo of cute cat.", "A photo of cute dog."]
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
