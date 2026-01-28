@@ -45,11 +45,10 @@ def init_config() -> DictConfig:
     config.data.custom_cls.path = "verl/utils/dataset/qwen_dataset.py"
     config.data.custom_cls.name = "QwenDataset"
     config.reward_model.reward_manager = "diffusion"
+    config.trainer.n_gpus_per_node = 4
 
-    # TODO (Mike): we test with 1 GPU card currently, later drop these
+    # TODO (Mike): test with TP later
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
-    config.trainer.n_gpus_per_node = 1
-
     return config
 
 
