@@ -81,6 +81,10 @@ class _InternalDiffusionAgentLoopOutput(DiffusionAgentLoopOutput):
     """Padded prompt token ids."""
     response_image: torch.Tensor
     """Response image (NCHW format)."""
+    input_ids: torch.Tensor
+    """Input ids (prompt_ids)."""
+    attention_mask: torch.Tensor
+    """Attention mask."""
     response_logprobs: Optional[torch.Tensor] = None
     """Log probabilities for the response tokens."""
     multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
@@ -116,7 +120,8 @@ class DiffusionAgentLoopWorker:
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
-        self.tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=True)
+        # see issue https://github.com/huggingface/tokenizers/issues/537, we use a non-fast tokenizer here
+        self.tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=True, use_fast=False)
         self.processor = hf_processor(os.path.join(local_path, "processor"), trust_remote_code=True)
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
@@ -257,6 +262,8 @@ class DiffusionAgentLoopWorker:
 
     async def _agent_loop_postprocess(self, output, **kwargs) -> _InternalDiffusionAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
+
+        # handling extra tensor ouputs from vllm-omni
         extra_fields = {}
         for k, v in output.extra_fields.items():
             if isinstance(v, torch.Tensor):
@@ -267,23 +274,28 @@ class DiffusionAgentLoopWorker:
         extra_fields["raw_prompt"] = kwargs["raw_prompt"]
 
         input_ids = torch.tensor(output.prompt_ids).unsqueeze(0)
+        attention_mask = torch.ones_like(input_ids, dtype=torch.long)
         response_image = torch.tensor(output.response_image).unsqueeze(0)
 
         response_logprobs = None
         if output.response_logprobs is not None:
             response_logprobs = torch.tensor(output.response_logprobs).unsqueeze(0)
 
-        multi_modal_inputs = self._compute_multi_modal_inputs(output)
+        multi_modal_inputs = self._compute_multi_modal_inputs(output, input_ids)
         await self._compute_score(
             output,
             prompts=input_ids,
             responses=response_image,
+            attention_mask=attention_mask,
+            input_ids=input_ids,
             kwargs=kwargs,
         )
 
         return _InternalDiffusionAgentLoopOutput(
             prompt_ids=input_ids,
             response_image=response_image,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
             response_logprobs=response_logprobs,
             multi_modal_inputs=multi_modal_inputs,
             multi_modal_data=output.multi_modal_data,
@@ -293,7 +305,7 @@ class DiffusionAgentLoopWorker:
             extra_fields=extra_fields,
         )
 
-    def _compute_multi_modal_inputs(self, output) -> dict[str, torch.Tensor]:
+    def _compute_multi_modal_inputs(self, output, input_ids) -> dict[str, torch.Tensor]:
         """Compute multi-modal inputs with image and video."""
         multi_modal_inputs = {}
         if self.processor is None:
@@ -301,7 +313,7 @@ class DiffusionAgentLoopWorker:
 
         raise NotImplementedError("Multi-modal input processing not implemented yet.")
 
-    async def _compute_score(self, output, prompts, responses, kwargs):
+    async def _compute_score(self, output, prompts, responses, attention_mask, input_ids, kwargs):
         """Compute reward score for single sample."""
         enable_async_reward = (
             self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
@@ -312,6 +324,8 @@ class DiffusionAgentLoopWorker:
                 {
                     "prompts": prompts,  # [1, prompt_length]
                     "responses": responses,  # [1, channel, height, width]
+                    "attention_mask": attention_mask,  # [1, prompt_length]
+                    "input_ids": input_ids,  # [1, prompt_length]
                 },
                 batch_size=1,
             )
@@ -334,6 +348,8 @@ class DiffusionAgentLoopWorker:
         # Convert lists back to tensors and stack them to create a batch.
         prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
         response_image = torch.cat([input.response_image for input in inputs], dim=0)
+        attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
+        input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
         optional_outputs = {}
         if inputs[0].response_logprobs is not None:
             optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
@@ -349,6 +365,8 @@ class DiffusionAgentLoopWorker:
             {
                 "prompts": prompt_ids,  # [bsz, prompt_length]
                 "responses": response_image,  # [bsz, channel, height, width]
+                "input_ids": input_ids,  # [bsz, prompt_length]
+                "attention_mask": attention_mask,  # [bsz, prompt_length]
                 **optional_outputs,
             },
             batch_size=len(inputs),

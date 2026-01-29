@@ -48,6 +48,12 @@ def init_config() -> DictConfig:
     config.reward_model.reward_manager = "diffusion"
     config.trainer.n_gpus_per_node = 4
 
+    tokenizer_max_length = 1024
+    prompt_template_encode_start_idx = 34
+    config.data.apply_chat_template_kwargs = dict(
+        max_length=tokenizer_max_length + prompt_template_encode_start_idx, padding=True, truncation=True
+    )
+
     # TODO (Mike): test with TP later
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
     return config
@@ -66,7 +72,21 @@ def test_single_turn(init_config):
 
     agent_loop_manager = DiffusionAgentLoopManager(init_config)
 
-    raw_prompts = ["A photo of cute cat.", "A photo of cute dog."]
+    system_prompt = (
+        "Describe the image by detailing the color, shape, size, texture, quantity, text, "
+        "spatial relationships of the objects and background:"
+    )
+    user_prompts = ["A photo of cute cat.", "A photo of cute dog."]
+
+    raw_prompts = []
+    for user_prompt in user_prompts:
+        raw_prompts.append(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
@@ -86,6 +106,8 @@ def test_single_turn(init_config):
         "all_timesteps",
         "prompt_embeds",
         "prompt_embeds_mask",
+        "input_ids",
+        "attention_mask",
     ]
     for key in expected_batch_keys:
         assert key in result.batch, f"Key {key} not found in result batch."
