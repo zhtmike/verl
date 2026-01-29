@@ -311,6 +311,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         if custom_pipeline is not None:
             kwargs["enable_dummy_pipeline"] = True
             kwargs["custom_pipeline_args"] = {"pipeline_class": custom_pipeline}
+            kwargs["worker_extension_cls"] = engine_args.worker_extension_cls
 
         # TODO (mike): support parsing engine config from CLI
         engine_client = AsyncOmni(**kwargs)

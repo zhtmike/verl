@@ -26,7 +26,7 @@ import torch
 import zmq
 
 from verl.utils.device import get_torch_device, is_npu_available
-from verl.utils.vllm import TensorLoRARequest, VLLMHijack
+from verl.utils.vllm import OmniTensorLoRARequest, TensorLoRARequest, VLLMHijack
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
@@ -243,7 +243,6 @@ class vLLMOmniColocateWorkerExtension:
 
     Feature support:
     1. LoRA
-    2. Online FP8 quantization
     """
 
     def __new__(cls, **kwargs):
@@ -306,7 +305,7 @@ class vLLMOmniColocateWorkerExtension:
     def _update_weights(self, weights: list[tuple[str, torch.Tensor]], peft_config: dict, base_sync_done: bool):
         if peft_config and base_sync_done:
             weights = dict(weights)
-            lora_request = TensorLoRARequest(
+            lora_request = OmniTensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
