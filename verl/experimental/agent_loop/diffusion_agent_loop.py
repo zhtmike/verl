@@ -20,6 +20,7 @@ import hydra
 import numpy as np
 import ray
 import torch
+import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
@@ -82,9 +83,9 @@ class _InternalDiffusionAgentLoopOutput(DiffusionAgentLoopOutput):
     response_image: torch.Tensor
     """Response image (NCHW format)."""
     input_ids: torch.Tensor
-    """Input ids (prompt_ids)."""
+    """Padded input ids(prompt_ids)."""
     attention_mask: torch.Tensor
-    """Attention mask."""
+    """Padded attention mask."""
     response_logprobs: Optional[torch.Tensor] = None
     """Log probabilities for the response tokens."""
     multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
@@ -262,24 +263,49 @@ class DiffusionAgentLoopWorker:
 
     async def _agent_loop_postprocess(self, output, **kwargs) -> _InternalDiffusionAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
-
-        # handling extra tensor ouputs from vllm-omni
+        # handling extra tensor ouputs from vllm-omni, like prompt embedding, etc.
         extra_fields = {}
         for k, v in output.extra_fields.items():
             if isinstance(v, torch.Tensor):
+                # handle prompt embedding padding
+                # TODO (mike): drop padding if possible
+                if k in ["prompt_embeds", "negative_prompt_embeds"]:
+                    pad_tuple = (0, 0, 0, self.config.actor_rollout_ref.rollout.prompt_length - v.shape[0])
+                    v = F.pad(v, pad_tuple, value=0)
+                elif k in ["prompt_embeds_mask", "negative_prompt_embeds_mask"]:
+                    pad_tuple = (0, self.config.actor_rollout_ref.rollout.prompt_length - v.shape[0])
+                    v = F.pad(v, pad_tuple, value=0)
                 extra_fields[k] = v.unsqueeze(0)
             else:
                 extra_fields[k] = v
 
         extra_fields["raw_prompt"] = kwargs["raw_prompt"]
 
-        input_ids = torch.tensor(output.prompt_ids).unsqueeze(0)
-        attention_mask = torch.ones_like(input_ids, dtype=torch.long)
-        response_image = torch.tensor(output.response_image).unsqueeze(0)
+        # TODO(wuxibin): remove padding and use tensordict.
+        self.tokenizer.padding_side = "left"
+        prompt_output = self.tokenizer.pad(
+            {"input_ids": output.prompt_ids},
+            padding="max_length",
+            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+            return_tensors="pt",
+            return_attention_mask=True,
+        )
+        if prompt_output["input_ids"].dim() == 1:
+            prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
+            prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
+
+        self.tokenizer.padding_side = "right"
+
+        response_image = torch.tensor(output.response_image)
+        if response_image.dim() == 3:
+            response_image = response_image.unsqueeze(0)
 
         response_logprobs = None
         if output.response_logprobs is not None:
             response_logprobs = torch.tensor(output.response_logprobs).unsqueeze(0)
+
+        attention_mask = prompt_output["attention_mask"]
+        input_ids = prompt_output["input_ids"]
 
         multi_modal_inputs = self._compute_multi_modal_inputs(output, input_ids)
         await self._compute_score(

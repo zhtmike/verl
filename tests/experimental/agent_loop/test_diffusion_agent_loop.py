@@ -50,9 +50,10 @@ def init_config() -> DictConfig:
 
     tokenizer_max_length = 1024
     prompt_template_encode_start_idx = 34
-    config.data.apply_chat_template_kwargs = dict(
-        max_length=tokenizer_max_length + prompt_template_encode_start_idx, padding=True, truncation=True
-    )
+    max_length = tokenizer_max_length + prompt_template_encode_start_idx
+
+    config.data.apply_chat_template_kwargs = dict(max_length=max_length, padding=True, truncation=True)
+    config.data.max_prompt_length = max_length
 
     # TODO (Mike): test with TP later
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
@@ -76,7 +77,7 @@ def test_single_turn(init_config):
         "Describe the image by detailing the color, shape, size, texture, quantity, text, "
         "spatial relationships of the objects and background:"
     )
-    user_prompts = ["A photo of cute cat.", "A photo of cute dog."]
+    user_prompts = ["A photo of cute cat with long fur and big eyes.", "A photo of cute dog with short hair."]
 
     raw_prompts = []
     for user_prompt in user_prompts:
