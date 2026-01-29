@@ -58,8 +58,8 @@ def test_qwen_dataset():
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
     assert len(data_proto) == 16
-    assert "input_ids" in data_proto.batch
-    assert "attention_mask" in data_proto.batch
+    assert "raw_prompt" in data_proto.batch
+    assert "reward_model" in data_proto.non_tensor_batch
 
 
 def test_qwen_dataset_with_max_samples():
