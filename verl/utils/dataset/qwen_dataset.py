@@ -96,8 +96,10 @@ class QwenDataset(Dataset):
 
         # NOTE: hard code for Qwen-Image
         self.tokenizer_max_length = 1024
-        DEFAULT_SYSTEM_PROMPT = "Describe the image by detailing the color, shape, size, texture, quantity, text, "
-        "spatial relationships of the objects and background:"
+        DEFAULT_SYSTEM_PROMPT = (
+            "Describe the image by detailing the color, shape, size, texture, quantity, text, "
+            "spatial relationships of the objects and background:"
+        )
         self.system_message_template = [
             {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
         ]
@@ -126,7 +128,7 @@ class QwenDataset(Dataset):
             elif parquet_file.endswith(".txt"):
                 dataframe = datasets.load_dataset("text", data_files=parquet_file)["train"]
                 # for caption only data, convert caption to messages
-                if isinstance(dataframe["text"], str):
+                if isinstance(dataframe["text"][0], str):
                     new_column = []
                     for caption in dataframe["text"]:
                         user_message = [{"role": "user", "content": caption}]
