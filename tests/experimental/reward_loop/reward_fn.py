@@ -121,6 +121,7 @@ async def compute_score_ocr(
     extra_info: dict,
     reward_router_address: str,
     reward_model_tokenizer: PreTrainedTokenizer = None,
+    model_name: str = None,
 ):
     """Compute the reward score."""
     import re
@@ -160,7 +161,7 @@ async def compute_score_ocr(
     ]
 
     sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
-    model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
+    model_name = model_name or os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
     chat_complete_request = {
         "messages": messages,
         "model": model_name,

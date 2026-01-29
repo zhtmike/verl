@@ -94,7 +94,11 @@ def _slice_response_from_unpad_output(tensor: torch.Tensor, data: TensorDict) ->
 
 
 def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
-    log_prob = _slice_response_from_unpad_output(model_output["log_probs"], data)
+    loss_mode = config.policy_loss.get("loss_mode", "vanilla")
+    if loss_mode == "flow_grpo":
+        log_prob = model_output["log_probs"]
+    else:
+        log_prob = _slice_response_from_unpad_output(model_output["log_probs"], data)
     entropy = model_output.get("entropy", None)
     if entropy is not None:
         entropy = _slice_response_from_unpad_output(entropy, data)
@@ -127,8 +131,6 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     rollout_is_weights = data.get("rollout_is_weights", None)
 
     loss_agg_mode = config.loss_agg_mode
-
-    loss_mode = config.policy_loss.get("loss_mode", "vanilla")
 
     policy_loss_fn = get_policy_loss_fn(loss_mode)
     pg_loss, pg_metrics = policy_loss_fn(

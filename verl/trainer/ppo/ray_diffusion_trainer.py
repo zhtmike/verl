@@ -23,7 +23,6 @@ import json
 import os
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
 from pprint import pprint
 from typing import Any, Optional
 
@@ -37,9 +36,10 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl import DataProto
+from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup, ResourcePoolManager
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
@@ -65,63 +65,6 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.config import FSDPEngineConfig
-
-
-@dataclass
-class ResourcePoolManager:
-    """
-    Define a resource pool specification. Resource pool will be initialized first.
-    """
-
-    resource_pool_spec: dict[str, list[int]]
-    mapping: dict[Role, str]
-    resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
-
-    def create_resource_pool(self):
-        """Create Ray resource pools for distributed training.
-
-        Initializes resource pools based on the resource pool specification,
-        with each pool managing GPU resources across multiple nodes.
-        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
-        For Megatron backend, uses max_colocate_count>1 for different models.
-        """
-        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
-            # For Megatron backend, we recommend using max_colocate_count>1
-            # that can utilize different WorkerGroup for differnt models
-            resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
-            )
-            self.resource_pool_dict[resource_pool_name] = resource_pool
-
-        self._check_resource_available()
-
-    def get_resource_pool(self, role: Role) -> RayResourcePool:
-        """Get the resource pool of the worker_cls"""
-        return self.resource_pool_dict[self.mapping[role]]
-
-    def get_n_gpus(self) -> int:
-        """Get the number of gpus in this cluster."""
-        return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
-
-    def _check_resource_available(self):
-        """Check if the resource pool can be satisfied in this ray cluster."""
-        node_available_resources = ray._private.state.available_resources_per_node()
-        node_available_gpus = {
-            node: node_info.get("GPU", 0) if "GPU" in node_info else node_info.get("NPU", 0)
-            for node, node_info in node_available_resources.items()
-        }
-
-        # check total required gpus can be satisfied
-        total_available_gpus = sum(node_available_gpus.values())
-        total_required_gpus = sum(
-            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
-        )
-        if total_available_gpus < total_required_gpus:
-            raise ValueError(
-                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
-            )
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
@@ -166,6 +109,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
+# TODO: (susan) modify based on actual rollout output
 def compute_response_mask(data: DataProto):
     """Compute the attention mask for the response part of the sequence.
 
@@ -179,7 +123,7 @@ def compute_response_mask(data: DataProto):
         torch.Tensor: The attention mask for the response tokens.
     """
     responses = data.batch["responses"]
-    response_length = responses.size(1)
+    response_length = responses.size(2) * responses.size(3)
     attention_mask = data.batch["attention_mask"]
     return attention_mask[:, -response_length:]
 
@@ -308,7 +252,7 @@ class RayFlowGRPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(config)
         # legacy reward model implementation
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
@@ -502,6 +446,10 @@ class RayFlowGRPOTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
+        if "wandb" in self.config.trainer.logger:
+            import wandb
+
+            outputs = [wandb.Image(image.float(), file_type="jpg") for image in outputs]
         samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
@@ -585,7 +533,10 @@ class RayFlowGRPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = []
+        batch_keys_to_pop = [
+            "input_ids",
+            "attention_mask",
+        ]  # TODO: (susan) not sure if they are required as rollout input
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -668,7 +619,7 @@ class RayFlowGRPOTrainer:
             test_batch.meta_info["validate"] = True
 
             # Store original inputs
-            input_ids = test_batch.batch["prompts"]
+            input_ids = test_batch.batch["input_ids"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
@@ -864,11 +815,11 @@ class RayFlowGRPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward_loop import RewardLoopManager
+                from verl.experimental.reward_loop import DiffusionRewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-                self.reward_loop_manager = RewardLoopManager(
+                self.reward_loop_manager = DiffusionRewardLoopManager(
                     config=self.config,
                     rm_resource_pool=resource_pool,
                 )
@@ -950,7 +901,7 @@ class RayFlowGRPOTrainer:
         if manager_class_fqn:
             AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
         else:
-            from verl.experimental.agent_loop import AgentLoopManager
+            pass
 
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
@@ -962,6 +913,15 @@ class RayFlowGRPOTrainer:
             worker_group=self.actor_rollout_wg,
             rm_resource_pool=rm_resource_pool,
         )
+
+        self.checkpoint_manager = CheckpointEngineManager(
+            backend=self.config.actor_rollout_ref.rollout.checkpoint_engine.backend,
+            trainer=self.actor_rollout_wg,
+            replicas=self.async_rollout_manager.rollout_replicas,
+        )
+
+        # sleep all replicas to load checkpoint
+        self.checkpoint_manager.sleep_replicas()
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1131,6 +1091,7 @@ class RayFlowGRPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
+    # TODO: (susan) may reorder based on total steps?
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
@@ -1238,7 +1199,13 @@ class RayFlowGRPOTrainer:
             # step 1: convert dataproto to tensordict.
             batch_td = batch.to_tensordict()
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+            tu.assign_non_tensor(
+                batch_td,
+                calculate_entropy=True,
+                compute_loss=False,
+                height=self.config.actor_rollout_ref.rollout.image_height,
+                width=self.config.actor_rollout_ref.rollout.image_width,
+            )
             output = self.actor_rollout_wg.compute_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
@@ -1277,6 +1244,7 @@ class RayFlowGRPOTrainer:
             actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
+
         return actor_output
 
     def _update_critic(self, batch: DataProto) -> DataProto:
@@ -1327,8 +1295,9 @@ class RayFlowGRPOTrainer:
 
         self.global_steps = 0
 
-        # load checkpoint before doing anything
+        # load checkpoint and update weights before doing anything
         self._load_checkpoint()
+        self.checkpoint_manager.update_weights()
 
         current_epoch = self.global_steps // len(self.train_dataloader)
 
@@ -1398,9 +1367,11 @@ class RayFlowGRPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                            self.checkpoint_manager.sleep_replicas()
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
+
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -1418,7 +1389,7 @@ class RayFlowGRPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                     # get images_seqlens
                     images_seqlens_all = []
-                    for multi_modal_input in batch.non_tensor_batch["multi_modal_inputs"]:
+                    for multi_modal_input in batch.non_tensor_batch.get("multi_modal_inputs", []):
                         if "image_grid_thw" not in multi_modal_input.keys():
                             continue
                         images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
@@ -1540,6 +1511,11 @@ class RayFlowGRPOTrainer:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)
+
+                        # update weights from trainer to rollout
+                        with marked_timer("update_weights", timing_raw, color="red"):
+                            self.checkpoint_manager.update_weights()
+
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 

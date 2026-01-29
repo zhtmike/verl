@@ -62,6 +62,7 @@ class DiffusionRewardManager(RewardManagerBase):
             {
                 "reward_router_address": self.reward_router_address,
                 "reward_model_tokenizer": self.reward_model_tokenizer,
+                "model_name": self.config.reward_model.model.path,
             }
             if self.reward_router_address is not None
             else {}

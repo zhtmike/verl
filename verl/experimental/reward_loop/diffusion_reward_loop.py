@@ -69,7 +69,10 @@ class DiffusionRewardLoopWorker:
         self._executor = ThreadPoolExecutor(max_workers=4)
 
     def _init_reward_fn(self):
-        input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
+        tokenizer_path = self.config.actor_rollout_ref.model.get(
+            "tokenizer_path", os.path.join(self.config.actor_rollout_ref.model.path, "tokenizer")
+        )
+        input_tokenizer_local_path = copy_to_local(tokenizer_path)
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
         self.reward_model_tokenizer = None
         if self.config.reward_model.enable:
@@ -180,7 +183,7 @@ class DiffusionRewardLoopWorker:
         chat: list = list(data_item.non_tensor_batch["raw_prompt"])
 
         # extract response
-        prompt_str = self.input_tokenizer.decode(data_item.batch["prompts"], skip_special_tokens=True)
+        prompt_str = self.input_tokenizer.decode(data_item.batch["input_ids"], skip_special_tokens=True)
         response_image = data_item.batch["responses"]
 
         # convert to PIL Image
@@ -224,6 +227,23 @@ class DiffusionRewardLoopWorker:
             }
             output = await self._post_request(payloads, "v1/embeddings")
             rm_score = output["data"][-1]["embedding"][-1]
+        elif engine_name == "trtllm":
+            # TODO: remove this once TRT-LLM switches to TorchSampler
+            raise ValueError("TensorRT-LLM backend does not support reward models currently.")
+
+            payloads = {
+                "model": model_name,
+                "prompt": disrm_prompt,
+                "return_context_logits": True,
+            }
+            output = await self._post_request(payloads, "v1/completions")
+            rm_score = output["choices"][0]["context_logits"]
+            assert isinstance(rm_score, list) and len(rm_score) > 0, (
+                "TensorRT-LLM OpenAI server response for reward score is not in the expected format."
+            )
+
+            rm_score = float(rm_score[0][0])
+            logger.debug(f"rm score: {rm_score}")
         else:
             raise NotImplementedError(f"DiffusionRewardLoopManager does not support {engine_name}")
 
@@ -303,7 +323,7 @@ class DiffusionRewardLoopManager:
 
         # compute rm score
         scores = [item["reward_score"] for item in outputs_flat]
-        rm_scores = torch.tensor(scores, dtype=torch.float32)
+        rm_scores = torch.tensor(scores, dtype=torch.float32).unsqueeze(-1)
         batch = TensorDict({"rm_scores": rm_scores}, batch_size=len(data))
 
         reward_extra_infos = [output.get("reward_extra_info", {}) for output in outputs_flat]

@@ -15,12 +15,15 @@
 import copy
 import logging
 import os
+import re
 import traceback
+from io import BytesIO
 from typing import Optional
 
 import datasets
 import numpy as np
 from omegaconf import DictConfig
+from PIL import Image
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
@@ -84,7 +87,7 @@ class QwenDataset(Dataset):
 
         self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
-        self.data_source = config.get("data_source")
+        self.data_source = config.get("data_source", "ocr")
         self.serialize_dataset = False
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count()) if self.num_workers is not None else None
@@ -275,6 +278,57 @@ class QwenDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
+    def _build_messages(self, example: dict):
+        """Replace <image> and <video> placeholder in messages with corresponding image and video
+        which is required by processor.apply_chat_template.
+        - <image>: {"type": "image", "image": image}
+        - <video>: {"type": "video", "video": video}
+
+        Args:
+            example: Row dictionary from dataframe.
+
+        Returns:
+            messages: List of messages with replaced placeholder.
+        """
+        messages: list = example[self.prompt_key]
+        images = example.pop(self.image_key, [])
+        videos = example.pop(self.video_key, [])
+
+        image_offset, video_offset = 0, 0
+        for message in messages:
+            if not images and not videos:
+                continue
+            assert self.processor is not None, "processor is needed to process image and video"
+
+            content = message["content"]
+            if not isinstance(content, str):
+                continue
+
+            content_list = []
+            segments = re.split("(<image>|<video>)", content)
+            segments = [item for item in segments if item != ""]
+            for segment in segments:
+                if segment == "<image>":
+                    assert image_offset < len(images), f"image_offset {image_offset} >= len(images) {len(images)}"
+                    image = images[image_offset]
+                    if isinstance(image, Image.Image):
+                        image = image.convert("RGB")
+                    elif isinstance(image, dict) and "bytes" in image:
+                        image["image"] = Image.open(BytesIO(image["bytes"]))
+                    content_list.append({"type": "image", "image": image})
+                    image_offset += 1
+                elif segment == "<video>":
+                    assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
+                    content_list.append({"type": "video", "video": videos[video_offset]})
+                    video_offset += 1
+                else:
+                    content_list.append({"type": "text", "text": segment})
+            message["content"] = content_list
+
+        assert image_offset == len(images), f"image_offset {image_offset} != len(images) {len(images)}"
+        assert video_offset == len(videos), f"video_offset {video_offset} != len(videos) {len(videos)}"
+        return messages
+
     def __getitem__(self, idx):
         row_dict: dict = self.dataframe[idx]
 
@@ -297,7 +351,7 @@ class QwenDataset(Dataset):
 
         # add reward related non-tensor inputs
         row_dict["raw_prompt"] = self.prompts[idx]
-        row_dict["reward_model"] = {}
+        row_dict["reward_model"] = {"style": "model"}
         row_dict["data_source"] = self.data_source
         ground_truth = self.get_ground_truth(row_dict["raw_prompt"], row_dict["data_source"])
         if ground_truth is not None:

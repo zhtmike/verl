@@ -24,7 +24,7 @@ from verl.utils.fs import copy_to_local
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 
-__all__ = ["HFModelConfig", "MtpConfig"]
+__all__ = ["HFModelConfig", "DiffusersModelConfig", "MtpConfig"]
 
 
 @dataclass
@@ -202,6 +202,88 @@ class HFModelConfig(BaseConfig):
         # per model patch
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":
             self.hf_config.text_config.topk_method = "greedy"
+
+    def get_processor(self):
+        return self.processor if self.processor is not None else self.tokenizer
+
+
+@dataclass
+class DiffusersModelConfig(BaseConfig):
+    _mutable_fields = {
+        "tokenizer_path",
+        "tokenizer",
+        "processor",
+        "local_path",
+        "local_tokenizer_path",
+    }
+
+    path: str = MISSING
+    local_path: Optional[str] = None
+    tokenizer_path: Optional[str] = None
+    local_tokenizer_path: Optional[str] = None
+    model_type: str = "diffusion_model"
+    tokenizer: Any = None
+    processor: Any = None
+
+    # whether to load tokenizer. This is useful when we only want to load model config
+    load_tokenizer: bool = True
+
+    # whether to use shared memory
+    use_shm: bool = False
+    trust_remote_code: bool = False
+
+    external_lib: Optional[str] = None
+
+    override_config: dict = field(default_factory=dict)
+
+    enable_gradient_checkpointing: bool = False
+    enable_activation_offload: bool = False
+
+    use_remove_padding: bool = True
+
+    # lora related. We may setup a separate config later
+    lora_rank: int = 32
+    lora_alpha: int = 64
+    lora_init_weights: str = "gaussian"
+    target_modules: Optional[str] = "auto"
+    exclude_modules: Optional[str] = None
+
+    # path to pre-trained LoRA adapter to load for continued training
+    lora_adapter_path: Optional[str] = None
+    use_liger: bool = False
+
+    # optimization related
+    use_fused_kernels: bool = False
+    fused_kernel_options: dict = field(default_factory=dict)
+
+    # TiledMLP configuration for memory-efficient MLP computation
+    tiled_mlp: dict = field(default_factory=lambda: {"enabled": False, "num_shards": 4})
+
+    # ema related
+    use_ema: bool = True
+    ema_decay: float = 0.95
+
+    # sample related
+    image_height: int = 512
+    image_width: int = 512
+    num_inference_steps: int = 10
+    noise_level: float = 0.7
+    guidance_scale: float = 4.5
+    sde_type: str = "sde"  # "sde" or "cps"
+    sde_window_size: Optional[int] = None
+    sde_window_range: Optional[int] = None
+
+    def __post_init__(self):
+        import_external_libs(self.external_lib)
+        if self.tokenizer_path is None:
+            self.tokenizer_path = self.path
+        self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
+
+        # construct tokenizer
+        if self.load_tokenizer:
+            self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
+            self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+            self.processor = hf_processor(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
 
     def get_processor(self):
         return self.processor if self.processor is not None else self.tokenizer

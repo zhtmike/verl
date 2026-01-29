@@ -25,7 +25,13 @@ from .engine import FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
+__all__ = [
+    "PolicyLossConfig",
+    "RouterReplayConfig",
+    "ActorConfig",
+    "FSDPActorConfig",
+    "McoreActorConfig",
+]
 
 
 @dataclass
