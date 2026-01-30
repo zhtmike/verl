@@ -259,7 +259,7 @@ class QwenDataset(Dataset):
 
         return self.__dict__.copy()
 
-    def get_ground_truth(self, messages: list, data_source: str):
+    def get_ground_truth(self, messages: list, data_source: str) -> str:
         # apply chat template
         prompt = self.tokenizer.apply_chat_template(messages, tokenize=False)
 
@@ -269,7 +269,7 @@ class QwenDataset(Dataset):
         elif data_source == "prompt":
             return prompt
         else:
-            return None
+            return ""
 
     def __len__(self):
         return len(self.dataframe)

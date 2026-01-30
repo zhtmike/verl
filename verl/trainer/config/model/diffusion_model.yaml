@@ -76,27 +76,14 @@ tiled_mlp:
   # number of shards to split the input. Higher values reduce peak memory but may slightly impact performance.
   num_shards: 4
 
-
-# image height
-image_height: 512
-
-# image width
-image_width: 512
-
 # inference steps
-num_inference_steps: 10
+num_inference_steps: ${actor_rollout_ref.rollout.num_inference_steps}
 
 # noise in SDE
-noise_level: 0.7
+noise_level: ${actor_rollout_ref.rollout.noise_level}
 
 # guidance scale for classifier-free guidance
-guidance_scale: 4.5
+guidance_scale: ${actor_rollout_ref.rollout.guidance_scale}
 
 # SDE type during rollout
-sde_type: "sde"
-
-# SDE window size
-sde_window_size: null
-
-# SDE window range
-sde_window_range: null
+sde_type: ${actor_rollout_ref.rollout.sde_type}
