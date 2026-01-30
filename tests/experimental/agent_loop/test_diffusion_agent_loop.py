@@ -28,16 +28,21 @@ def init_config() -> DictConfig:
     from hydra import compose, initialize_config_dir
 
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
-        config = compose(config_name="ppo_trainer")
+        config = compose(config_name="ppo_diffusion_trainer")
 
     model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.model.tokenizer_path = os.path.join(model_path, "tokenizer")
-    config.actor_rollout_ref.rollout.name = "vllm-omni"
+    config.actor_rollout_ref.rollout.name = "vllm_omni"
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.num_inference_steps = 40
+    config.actor_rollout_ref.rollout.guidance_scale = 1.0
+    config.actor_rollout_ref.rollout.sde_type = "cps"
+    config.actor_rollout_ref.rollout.noise_level = 0.8
+    config.actor_rollout_ref.rollout.image_height = 1024
+    config.actor_rollout_ref.rollout.image_width = 1024
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline = (

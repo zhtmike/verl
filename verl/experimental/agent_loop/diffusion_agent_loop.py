@@ -169,8 +169,16 @@ class DiffusionAgentLoopWorker:
             ...
         """
         config = self.config.actor_rollout_ref.rollout
+
+        # TODO (mike): it is for Qwen-Image only, need to generalize later
+        # TODO (mike): pass config.calculate_log_probs
         sampling_params = dict(
-            logprobs=config.calculate_log_probs,
+            height=config.image_height,
+            width=config.image_width,
+            true_cfg_scale=config.guidance_scale,
+            sde_type=config.sde_type,
+            sde_window_size=config.sde_window_size,
+            sde_window_range=config.sde_window_range,
         )
 
         # override sampling params for validation

@@ -232,6 +232,8 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         width = req.width or self.default_sample_size * self.vae_scale_factor
         num_inference_steps = req.num_inference_steps or num_inference_steps
         generator = req.generator or generator
+        if generator is None and req.seed is not None:
+            generator = torch.Generator(device=self.device).manual_seed(req.seed)
         true_cfg_scale = req.true_cfg_scale or true_cfg_scale
         req_num_outputs = getattr(req, "num_outputs_per_prompt", None)
         if req_num_outputs and req_num_outputs > 0:

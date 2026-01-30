@@ -36,7 +36,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_resource_name, get_visible_devices_keyword
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import DiffusersModelConfig, RolloutConfig
 from verl.workers.rollout.replica import ImageOutput, RolloutMode
 from verl.workers.rollout.utils import run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMOmniServerAdapter
@@ -63,7 +63,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     def __init__(
         self,
         config: RolloutConfig,
-        model_config: HFModelConfig,
+        model_config: DiffusersModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -86,7 +86,9 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         os.environ[get_visible_devices_keyword()] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        self.model_config: DiffusersModelConfig = omega_conf_to_dataclass(
+            model_config, dataclass_type=DiffusersModelConfig
+        )
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -462,7 +464,7 @@ class vLLMOmniReplica(vLLMReplica):
         self,
         replica_rank: int,
         config: RolloutConfig,
-        model_config: HFModelConfig,
+        model_config: DiffusersModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
     ):
