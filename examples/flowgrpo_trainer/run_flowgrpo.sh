@@ -1,6 +1,8 @@
-# Qwen-Image lora, vllm-omni rollout
+# Qwen-Image lora, vllm_omni rollout
 set -x
-ENGINE=vllm-omni
+export TOKENIZERS_PARALLELISM="false"
+
+ENGINE=vllm_omni
 REWARD_ENGINE=vllm
 
 reward_path=tests/experimental/reward_loop/reward_fn.py
@@ -62,11 +64,6 @@ python3 -m verl.trainer.main_flowgrpo \
     custom_reward_function.path=$reward_path \
     custom_reward_function.name=compute_score_ocr \
     reward_model.reward_manager=diffusion \
-    reward_model.model.path=$reward_model_name \
-    reward_model.enable=True \
-    reward_model.rollout.name=$REWARD_ENGINE \
-    reward_model.enable_resource_pool=False \
-    reward_model.use_reward_loop=True \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name='flow_grpo' \

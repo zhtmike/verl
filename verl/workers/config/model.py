@@ -252,6 +252,9 @@ class DiffusersModelConfig(BaseConfig):
     target_modules: Optional[str] = "auto"
     exclude_modules: Optional[str] = None
 
+    # megatron lora config
+    lora: dict[str, Any] = field(default_factory=dict)
+
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
     use_liger: bool = False
