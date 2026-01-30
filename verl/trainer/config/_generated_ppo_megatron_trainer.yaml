@@ -243,8 +243,7 @@ actor_rollout_ref:
     sde_window_range: null
     engine_kwargs:
       vllm: {}
-      vllm_omni:
-        custom_pipeline: null
+      vllm_omni: {}
       sglang: {}
       trtllm: {}
     val_kwargs:
@@ -418,10 +417,7 @@ data:
   datagen:
     path: null
     name: null
-  apply_chat_template_kwargs:
-    max_length: null
-    padding: false
-    truncation: false
+  apply_chat_template_kwargs: {}
 reward_manager:
   _target_: verl.trainer.config.config.RewardManagerConfig
   source: register

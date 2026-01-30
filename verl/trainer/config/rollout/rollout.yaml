@@ -147,9 +147,7 @@ engine_kwargs:
   vllm: {}
 
   # vllm-omni engine config
-  vllm_omni:
-    # custom pipeline for vllm-omni engine
-    custom_pipeline: null
+  vllm_omni: {}
 
   # sglang engine config
   sglang: {}

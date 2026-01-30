@@ -16,11 +16,11 @@ python3 -m verl.trainer.main_flowgrpo \
     data.train_batch_size=8 \
     data.val_max_samples=32 \
     data.max_prompt_length=1058 \
-    data.apply_chat_template_kwargs.max_length=1058 \
-    data.apply_chat_template_kwargs.padding=True \
-    data.apply_chat_template_kwargs.truncation=True \
+    +data.apply_chat_template_kwargs.max_length=1058 \
+    +data.apply_chat_template_kwargs.padding=True \
+    +data.apply_chat_template_kwargs.truncation=True \
     data.filter_overlong_prompts=True \
-    data.data_source=ocr \
+    data.data_source=jpeg_compressibility \
     data.custom_cls.path=verl/utils/dataset/qwen_dataset.py \
     data.custom_cls.name=QwenDataset \
     actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen-Image \
@@ -54,9 +54,10 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.guidance_scale=1.0 \
     actor_rollout_ref.rollout.noise_level=0.8 \
     actor_rollout_ref.rollout.sde_type="cps" \
-    actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
+    +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.rollout.skip_tokenizer_init=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     custom_reward_function.path=$reward_path \
     custom_reward_function.name=compute_score_ocr \
     reward_model.reward_manager=diffusion \
