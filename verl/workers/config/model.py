@@ -278,7 +278,7 @@ class DiffusersModelConfig(BaseConfig):
     guidance_scale: float = 4.5
     sde_type: str = "sde"  # "sde" or "cps"
     sde_window_size: Optional[int] = None
-    sde_window_range: Optional[int] = None
+    sde_window_range: Optional[tuple[int, int]] = None
 
     def __post_init__(self):
         import_external_libs(self.external_lib)

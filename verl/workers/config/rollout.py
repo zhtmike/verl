@@ -251,7 +251,7 @@ class RolloutConfig(BaseConfig):
     guidance_scale: float = 4.5
     sde_type: Literal["sde", "cps"] = "sde"
     sde_window_size: Optional[int] = None
-    sde_window_range: Optional[int] = None
+    sde_window_range: Optional[tuple[int, int]] = None
 
     def __post_init__(self):
         """Validate the rollout config"""

@@ -22,7 +22,8 @@ from typing import Optional
 
 import datasets
 import numpy as np
-from omegaconf import DictConfig
+import torch
+from omegaconf import DictConfig, ListConfig
 from PIL import Image
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -48,12 +49,12 @@ class QwenDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
-        system_prompt: str = None,
+        system_prompt: Optional[str] = None,
         max_samples: int = -1,
-        **kwargs,
     ):
-        if not isinstance(data_files, list):
+        if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
+
         self.data_files = copy.deepcopy(data_files)
         self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
@@ -85,7 +86,6 @@ class QwenDataset(Dataset):
                 logger.warning("Failed to initialize tools from %s: %s", self.tool_config_path, e)
                 self.tool_schemas = None
 
-        self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
         self.data_source = config.get("data_source", "ocr")
         self.serialize_dataset = False
@@ -93,9 +93,10 @@ class QwenDataset(Dataset):
         self.num_workers = min(self.num_workers, os.cpu_count()) if self.num_workers is not None else None
         self.use_shm = config.get("use_shm", False)
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
+        self.serialize_dataset = False
+        self.shuffle = config.get("shuffle", False)
+        self.seed = config.get("seed")
 
-        # NOTE: hard code for Qwen-Image
-        self.tokenizer_max_length = 1024
         DEFAULT_SYSTEM_PROMPT = (
             "Describe the image by detailing the color, shape, size, texture, quantity, text, "
             "spatial relationships of the objects and background:"
@@ -117,7 +118,6 @@ class QwenDataset(Dataset):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
 
     def _read_files_and_tokenize(self):
-        # read files
         dataframes = []
         for parquet_file in self.data_files:
             # read files and cache
@@ -128,6 +128,7 @@ class QwenDataset(Dataset):
             elif parquet_file.endswith(".txt"):
                 dataframe = datasets.load_dataset("text", data_files=parquet_file)["train"]
                 # for caption only data, convert caption to messages
+                # TODO (mike): the system message should support other format
                 if isinstance(dataframe["text"][0], str):
                     new_column = []
                     for caption in dataframe["text"]:
@@ -145,7 +146,6 @@ class QwenDataset(Dataset):
         total = len(self.dataframe)
         print(f"dataset len: {len(self.dataframe)}")
 
-        # sample max_samples
         if self.max_samples > 0 and self.max_samples < total:
             if self.shuffle:
                 rngs_args = (self.seed,) if self.seed is not None else ()
@@ -156,7 +156,6 @@ class QwenDataset(Dataset):
             self.dataframe = self.dataframe.select(indices.tolist())
             print(f"selected {self.max_samples} random samples out of {total}")
 
-        # filter out too long prompts
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
@@ -278,8 +277,8 @@ class QwenDataset(Dataset):
     def _build_messages(self, example: dict):
         """Replace <image> and <video> placeholder in messages with corresponding image and video
         which is required by processor.apply_chat_template.
-        - <image>: {"type": "image", "image": image}
-        - <video>: {"type": "video", "video": video}
+        - <image>: {"type": "image", **image}
+        - <video>: {"type": "video", **video}
 
         Args:
             example: Row dictionary from dataframe.
@@ -288,8 +287,9 @@ class QwenDataset(Dataset):
             messages: List of messages with replaced placeholder.
         """
         messages: list = example[self.prompt_key]
-        images = example.pop(self.image_key, [])
-        videos = example.pop(self.video_key, [])
+        # When concatenating image and video datasets, pop will return None for image or video sample
+        images = example.pop(self.image_key, None) or []
+        videos = example.pop(self.video_key, None) or []
 
         image_offset, video_offset = 0, 0
         for message in messages:
@@ -310,13 +310,17 @@ class QwenDataset(Dataset):
                     image = images[image_offset]
                     if isinstance(image, Image.Image):
                         image = image.convert("RGB")
-                    elif isinstance(image, dict) and "bytes" in image:
-                        image["image"] = Image.open(BytesIO(image["bytes"]))
-                    content_list.append({"type": "image", "image": image})
+                        content_list.append({"type": "image", "image": image})
+                    elif isinstance(image, dict):
+                        if "bytes" in image:
+                            image["image"] = Image.open(BytesIO(image["bytes"]))
+                        content_list.append({"type": "image", **image})
+                    else:
+                        raise TypeError(f"image must be dict or PIL.Image, unsupported image type: {type(image)}")
                     image_offset += 1
                 elif segment == "<video>":
                     assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
-                    content_list.append({"type": "video", "video": videos[video_offset]})
+                    content_list.append({"type": "video", **videos[video_offset]})
                     video_offset += 1
                 else:
                     content_list.append({"type": "text", "text": segment})
@@ -326,8 +330,13 @@ class QwenDataset(Dataset):
         assert video_offset == len(videos), f"video_offset {video_offset} != len(videos) {len(videos)}"
         return messages
 
-    def __getitem__(self, idx):
-        row_dict: dict = self.dataframe[idx]
+    def __getitem__(self, item):
+        """For rollout, apply_chat_template has been moved to AgentLoop, so we only return raw_prompt here."""
+        row_dict: dict = self.dataframe[item]
+
+        # TODO(wuxibin): We still need a dummy tensor to make sure DataProto.batch is not empty.
+        # Remove this after deprecate DataProto by TensorDict.
+        row_dict["dummy_tensor"] = torch.tensor([0], dtype=torch.uint8)
 
         # add index for each prompt
         if "extra_info" not in row_dict or row_dict["extra_info"] is None:
@@ -386,7 +395,7 @@ class QwenDataset(Dataset):
             start_idx = i * split_size
             end_idx = (i + 1) * split_size if i < num_splits - 1 else total_samples
 
-            split_dataframe = [self.dataframe[i] for i in range(start_idx, end_idx)]
+            split_dataframe = self.dataframe.select(range(start_idx, end_idx))
 
             split_dataset = QwenDataset(
                 data_files=self.data_files,
