@@ -1,12 +1,10 @@
 # Qwen-Image lora, vllm-omni rollout
 set -x
-ENGINE=vllm-omni # TBD: determine the engine name
+ENGINE=vllm-omni
 REWARD_ENGINE=vllm
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 reward_path=tests/experimental/reward_loop/reward_fn.py
-reward_model_name=/models/Qwen/Qwen2.5-VL-7B-Instruct
+reward_model_name=$HOME/models/Qwen/Qwen2.5-VL-3B-Instruct
 
 
 python3 -m verl.trainer.main_flowgrpo \
@@ -15,13 +13,16 @@ python3 -m verl.trainer.main_flowgrpo \
     data.val_files=$HOME/dataset/ocr/test.txt \
     data.train_batch_size=8 \
     data.val_max_samples=32 \
-    data.max_prompt_length=512 \
+    data.max_prompt_length=1058 \
+    data.apply_chat_template_kwargs.max_length=1058 \
+    data.apply_chat_template_kwargs.padding=True \
+    data.apply_chat_template_kwargs.truncation=True \
     data.filter_overlong_prompts=True \
     data.data_source=ocr \
     data.custom_cls.path=verl/utils/dataset/qwen_dataset.py \
     data.custom_cls.name=QwenDataset \
-    actor_rollout_ref.model.path=Qwen/Qwen-Image \
-    actor_rollout_ref.model.tokenizer_path=Qwen/Qwen-Image/tokenizer \
+    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen-Image \
+    actor_rollout_ref.model.tokenizer_path=$HOME/models/Qwen/Qwen-Image/tokenizer \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.model.guidance_scale=1.0 \
@@ -53,6 +54,9 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.guidance_scale=1.0 \
     actor_rollout_ref.rollout.noise_level=0.8 \
     actor_rollout_ref.rollout.sde_type="sde" \
+    actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
+    actor_rollout_ref.rollout.skip_tokenizer_init=True \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     custom_reward_function.path=$reward_path \
@@ -67,7 +71,7 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name='flow_grpo' \
     trainer.experiment_name='qwen_image_ocr' \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=5 \
