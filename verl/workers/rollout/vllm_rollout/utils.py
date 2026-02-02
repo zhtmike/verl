@@ -292,7 +292,7 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
 
         return super().__new__(cls)
 
-    def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False):
+    def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""
         from vllm.platforms import current_platform
 
@@ -303,15 +303,23 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
         if peft_config and base_sync_done:
             self.remove_lora(VLLM_LORA_INT_ID)
 
-        # build cuda ipc buffer
+        # build communication buffer
         assert self.device is not None
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
             self._zmq_ctx = zmq.Context()
         socket = self._zmq_ctx.socket(zmq.REP)
         socket.connect(self._get_zmq_handle())
-        handle = socket.recv_pyobj()
-        buffer: torch.Tensor = rebuild_ipc(handle, self.device.index)
-        assert buffer.dtype == torch.uint8
+
+        comm_metadata = socket.recv_pyobj()
+        buffer, shm = None, None
+        if not use_shm:
+            handle = comm_metadata
+            buffer = rebuild_ipc(handle, self.device.index)
+            assert buffer.dtype == torch.uint8
+        else:
+            shm_name = comm_metadata["name"]
+            shm_size = comm_metadata["size"]
+            buffer, shm = rebuild_shared_memory(shm_name, shm_size, dtype=torch.uint8)
         socket.send(b"")
 
         # receive bucket and update weights
@@ -322,7 +330,13 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
                 shape, dtype, offset = meta["shape"], meta["dtype"], meta["offset"]
                 size = dtype.itemsize * shape.numel()
                 # NOTE: we need to clone the tensor to release CUDA IPC memory
-                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape).clone()
+                # but for shared memory, it's not necessary and if we do clone,
+                # it will cause extra memory copy overhead and slow down the process.
+                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
+                if not use_shm:
+                    tensor = tensor.clone()
+                else:
+                    tensor = tensor.to(self.device)
                 weights.append((name, tensor))
             get_torch_device().synchronize()
             socket.send(b"")
@@ -334,6 +348,9 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
         # clean up
         socket.close()
         del buffer
+        if shm is not None:
+            shm.close()
+            del shm
         gc.collect()
         get_torch_device().ipc_collect()
         get_torch_device().empty_cache()
