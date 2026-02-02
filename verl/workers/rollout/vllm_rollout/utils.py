@@ -28,7 +28,7 @@ import zmq
 from vllm_omni.diffusion.worker.gpu_worker import CustomPipelineWorkerExtension
 
 from verl.utils.device import get_torch_device, is_npu_available
-from verl.utils.vllm import OmniTensorLoRARequest, TensorLoRARequest, VLLMHijack
+from verl.utils.vllm import OmniTensorLoRARequest, TensorLoRARequest, VLLMHijack, VLLMOmniHijack
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
@@ -283,6 +283,9 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
 
     def __new__(cls, **kwargs):
         set_death_signal()
+
+        # 1. patch for Lora
+        VLLMOmniHijack.hijack()
 
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
         # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
