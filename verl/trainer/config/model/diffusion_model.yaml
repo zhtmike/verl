@@ -77,13 +77,13 @@ tiled_mlp:
   num_shards: 4
 
 # inference steps
-num_inference_steps: ${actor_rollout_ref.rollout.num_inference_steps}
+num_inference_steps: ${oc.select:actor_rollout_ref.rollout.num_inference_steps,10}
 
 # noise in SDE
-noise_level: ${actor_rollout_ref.rollout.noise_level}
+noise_level:  ${oc.select:actor_rollout_ref.rollout.noise_level,0.7}
 
 # guidance scale for classifier-free guidance
-guidance_scale: ${actor_rollout_ref.rollout.guidance_scale}
+guidance_scale:  ${oc.select:actor_rollout_ref.rollout.guidance_scale,1.0}
 
 # SDE type during rollout
-sde_type: ${actor_rollout_ref.rollout.sde_type}
+sde_type: ${oc.select:actor_rollout_ref.rollout.sde_type,sde}
