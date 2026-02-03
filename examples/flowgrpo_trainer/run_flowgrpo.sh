@@ -7,6 +7,7 @@ REWARD_ENGINE=vllm
 
 reward_model_name=$HOME/models/Qwen/Qwen2.5-VL-3B-Instruct
 
+# Mike: free_cache_engine=True has some problem.
 
 python3 -m verl.trainer.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo \
@@ -49,6 +50,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.agent.default_agent_loop=diffusion_single_turn_agent \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
+    actor_rollout_ref.rollout.free_cache_engine=False \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
