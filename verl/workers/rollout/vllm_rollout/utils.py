@@ -25,6 +25,7 @@ from typing import Any, Callable, TypedDict, get_args
 
 import torch
 import zmq
+from peft import PeftConfig
 from vllm_omni.diffusion.worker.gpu_worker import CustomPipelineWorkerExtension
 
 from verl.utils.device import get_torch_device, is_npu_available
@@ -295,12 +296,18 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
 
         return super().__new__(cls)
 
-    def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
+    def update_weights_from_ipc(
+        self, peft_config: dict | PeftConfig = None, base_sync_done=False, use_shm: bool = False
+    ):
         """Update the weights of the rollout model."""
         from vllm.platforms import current_platform
 
         if current_platform.device_type == "npu" and self.device is None:
             self.device = torch.device(f"npu:{self.local_rank}")
+
+        # TODO (mike): check this
+        if isinstance(peft_config, PeftConfig):
+            peft_config = peft_config.to_dict()
 
         # In async mode, make sure the old lora is removed before adding the new one
         if peft_config and base_sync_done:

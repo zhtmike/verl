@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from pprint import pprint
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import ray
 import torchvision.transforms as T
@@ -37,7 +37,7 @@ from verl.utils.device import get_resource_name, get_visible_devices_keyword
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import DiffusersModelConfig, RolloutConfig
-from verl.workers.rollout.replica import ImageOutput, RolloutMode
+from verl.workers.rollout.replica import ImageOutput, RolloutMode, RolloutReplica
 from verl.workers.rollout.utils import run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMOmniServerAdapter
 from verl.workers.rollout.vllm_rollout.utils import (
@@ -47,13 +47,12 @@ from verl.workers.rollout.vllm_rollout.utils import (
     build_cli_args_from_config,
     get_vllm_max_lora_rank,
 )
-from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer, vLLMReplica
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-class vLLMOmniHttpServer(vLLMHttpServer):
+class vLLMOmniHttpServer:
     """vLLM-Omni http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -138,6 +137,32 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             f"{get_visible_devices_keyword()}: {cuda_visible_devices}, "
             f"master_address: {self._master_address}, master_port: {self._master_port}, "
             f"data_parallel_rpc_port: {self._dp_rpc_port}, data_parallel_master_port: {self._dp_master_port}"
+        )
+
+    def get_master_address(self):
+        """Get master address and port for data parallel.
+        Returns:
+            tuple: (master_address, master_port, dp_rpc_port)
+        """
+        return self._master_address, self._master_port, self._dp_rpc_port
+
+    def get_server_address(self):
+        """Get http server address and port."""
+        assert self._server_port is not None, "http server is not launched, port is None"
+        return self._server_address, self._server_port
+
+    async def collective_rpc(
+        self,
+        method: str | Callable,
+        timeout: float | None = None,
+        args: tuple = (),
+        kwargs: dict[str, Any] | None = None,
+    ):
+        await self.engine.collective_rpc(
+            method=method,
+            timeout=timeout,
+            args=args,
+            kwargs=kwargs,
         )
 
     async def launch_server(self, master_address: str = None, master_port: int = None, dp_rpc_port: int = None):
@@ -362,7 +387,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
                 )
 
         generator = self.engine.generate(
-            prompt="",  # TODO (Mike): drop empty prompt
+            prompt="",  # TODO (mike): drop empty prompt
             prompt_ids=prompt_ids,
             request_id=request_id,
             lora_request=lora_request,
@@ -449,17 +474,120 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
+    async def start_profile(self, **kwargs):
+        # TODO: Persist global_step to engine server-created file/path
+        kwargs.pop("global_step")
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.start_profile(**kwargs)
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.stop_profile()
+
     async def clear_kv_cache(self):
-        raise NotImplementedError("vLLM-Omni clear_kv_cache is not implemented.")
+        pass
 
     async def wait_for_requests_to_drain(self):
-        raise NotImplementedError("vLLM-Omni wait_for_requests_to_drain is not implemented.")
+        # TODO (mike): to be implemented
+        pass
+
+    async def abort_all_requests(self, reset_prefix_cache: bool = True) -> dict[str, Any]:
+        """Abort all ongoing generation requests.
+
+        Returns:
+            dict[str, Any]: Dictionary containing:
+                - aborted_count: Number of requests aborted
+                - request_ids: List of aborted request IDs
+        """
+        try:
+            # Take an atomic snapshot to avoid race conditions with the vLLM engine thread
+            request_states_snapshot = list(self.engine.output_processor.request_states.items())
+            request_ids = [req_id for req_id, _ in request_states_snapshot]
+
+            if not request_ids:
+                return {"aborted_count": 0, "request_ids": []}
+
+            # For each request, create an abort output and put it to its queue
+            # This allows the generator to receive the aborted result
+            from vllm.v1.engine import FinishReason
+
+            for _, req_state in request_states_snapshot:
+                request_output = req_state.make_request_output(
+                    [], pooling_output=None, finish_reason=FinishReason.ABORT, stop_reason=None
+                )
+                req_state.queue.put(request_output)
+
+            # Abort requests in the output processor and engine core
+            self.engine.output_processor.abort_requests(request_ids)
+            await self.engine.engine_core.abort_requests_async(request_ids)
+
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info("Prefix cache reset after abort")
+
+            logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
+            return {"aborted_count": len(request_ids), "request_ids": request_ids}
+
+        except Exception as e:
+            logger.error(f"Error aborting requests: {e}")
+            return {"aborted_count": 0, "request_ids": [], "error": str(e)}
+
+    async def abort_request(self, request_id: str, reset_prefix_cache: bool = True) -> dict[str, Any]:
+        """Abort a specific generation request.
+
+        Args:
+            request_id: The ID of the request to abort.
+
+        Returns:
+            dict[str, Any]: Dictionary containing abort result.
+        """
+        try:
+            request_states = self.engine.output_processor.request_states
+            req_state = request_states.get(request_id)
+
+            if req_state is None:
+                return {"aborted": False, "error": f"Request {request_id} not found"}
+
+            # Create abort output and put it to the queue
+            from vllm.v1.engine import FinishReason
+
+            request_output = req_state.make_request_output(
+                [], pooling_output=None, finish_reason=FinishReason.ABORT, stop_reason=None
+            )
+            req_state.queue.put(request_output)
+
+            # Abort in output processor and engine core
+            self.engine.output_processor.abort_requests([request_id])
+            await self.engine.engine_core.abort_requests_async([request_id])
+
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info(f"Prefix cache reset after abort request {request_id}")
+
+            logger.info(f"Aborted request: {request_id}")
+            return {"aborted": True, "request_id": request_id}
+
+        except Exception as e:
+            logger.error(f"Error aborting request {request_id}: {e}")
+            return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
 _rollout_worker_actor_cls = ray.remote(vLLMOmniServerAdapter)
 
 
-class vLLMOmniReplica(vLLMReplica):
+class vLLMOmniReplica(RolloutReplica):
     def __init__(
         self,
         replica_rank: int,
@@ -557,4 +685,43 @@ class vLLMOmniReplica(vLLMReplica):
 
     async def sleep(self):
         """Sleep each rollout server."""
+        # Drain DP engines for safe sleep.
+        await self.servers[0].wait_for_requests_to_drain.remote()
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def abort_all_requests(self) -> dict[str, Any]:
+        """Abort all ongoing generation requests across all servers.
+
+        Returns:
+            dict[str, Any]: Combined abort results from all servers.
+        """
+        results = await asyncio.gather(*[server.abort_all_requests.remote() for server in self.servers])
+
+        total_aborted = sum(r.get("aborted_count", 0) for r in results)
+        all_request_ids = []
+        for r in results:
+            all_request_ids.extend(r.get("request_ids", []))
+
+        return {
+            "aborted_count": total_aborted,
+            "request_ids": all_request_ids,
+            "server_results": results,
+        }
+
+    async def abort_request(self, request_id: str) -> dict[str, Any]:
+        """Abort a specific request. Tries all servers since we don't know which one has it.
+
+        Args:
+            request_id: The ID of the request to abort.
+
+        Returns:
+            dict[str, Any]: Abort result.
+        """
+        # TODO(petersh6): we should only abort on the server that has the request.
+        results = await asyncio.gather(*[server.abort_request.remote(request_id) for server in self.servers])
+
+        for r in results:
+            if r.get("aborted", False):
+                return r
+
+        return {"aborted": False, "request_id": request_id, "error": "Request not found on any server"}
