@@ -582,10 +582,12 @@ class DiffusersFSDPEngine(BaseEngine):
 
         hidden_states = latents[:, step]
         timestep = timesteps[:, step] / 1000.0
-        txt_seq_lens = prompt_embeds_mask.sum(dim=1).tolist()
+
+        # TODO (mike): in diffusers main branch, it no longer accept txt_seq_lens
+        txt_seq_lens = torch.ones_like(prompt_embeds_mask).sum(dim=1).tolist()
 
         if isinstance(negative_prompt_embeds_mask, torch.Tensor):
-            negative_txt_seq_lens = negative_prompt_embeds_mask.sum(dim=1).tolist()
+            negative_txt_seq_lens = torch.ones_like(negative_prompt_embeds_mask).sum(dim=1).tolist()
         else:
             negative_txt_seq_lens = None
 
