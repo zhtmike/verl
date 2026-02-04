@@ -67,14 +67,14 @@ def create_training_config(model_type, strategy, device_count, model):
                     "clip_ratio=0.0001",
                     "clip_ratio_high=5.0",
                     "ppo_mini_batch_size=4",
-                    "ppo_micro_batch_size_per_gpu=8",
+                    "ppo_micro_batch_size_per_gpu=4",
                     "optim.lr=1e-4",
                     "optim.weight_decay=0.0001",
                     "fsdp_config.param_offload=False",
                     "fsdp_config.optimizer_offload=False",
-                    "fsdp_config.model_dtype='float16'",
-                    "fsdp_config.dtype='float16'",
-                    "+fsdp_config.mixed_precision.param_dtype='float16'",
+                    "fsdp_config.model_dtype='bfloat16'",
+                    "fsdp_config.dtype='bfloat16'",
+                    "+fsdp_config.mixed_precision.param_dtype='bfloat16'",
                     "fsdp_config.forward_only=False",
                     "fsdp_config.fsdp_size=" + str(fsdp_size),
                     "fsdp_config.ulysses_sequence_parallel_size=" + str(cp),
@@ -99,10 +99,10 @@ def create_training_config(model_type, strategy, device_count, model):
     return training_config, actor_config
 
 
-def create_data_samples() -> DataProto:
+def create_data_samples(num_device: int) -> DataProto:
     from tensordict import TensorDict
 
-    batch_size = 8
+    batch_size = 8 * num_device
     seq_len = 64
     img_size = 512
     latent_dim = 64
@@ -167,7 +167,7 @@ def test_diffusers_fsdp_engine(strategy):
     wg.reset()
 
     # forward only without loss function
-    data_td = create_data_samples().to_tensordict()
+    data_td = create_data_samples(device_count).to_tensordict()
     tu.assign_non_tensor(data_td, compute_loss=False)
     output = wg.infer_batch(data_td)
     output_dict = output.get()
@@ -182,15 +182,15 @@ def test_diffusers_fsdp_engine(strategy):
     wg.set_loss_fn(loss_fn)
 
     # train batch
-    data_td = create_data_samples().to_tensordict()
-    ppo_mini_batch_size = 8
+    data_td = create_data_samples(device_count).to_tensordict()
+    ppo_mini_batch_size = 4
     ppo_epochs = actor_config.ppo_epochs
     seed = 42
     shuffle = actor_config.shuffle
     tu.assign_non_tensor(
         data_td,
-        global_batch_size=ppo_mini_batch_size,
-        mini_batch_size=ppo_mini_batch_size,
+        global_batch_size=ppo_mini_batch_size * device_count,
+        mini_batch_size=ppo_mini_batch_size * device_count,
         epochs=ppo_epochs,
         seed=seed,
         dataloader_kwargs={"shuffle": shuffle},
