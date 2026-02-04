@@ -689,7 +689,12 @@ class vLLMOmniReplica(RolloutReplica):
         """Sleep each rollout server."""
         # Drain DP engines for safe sleep.
         await self.servers[0].wait_for_requests_to_drain.remote()
-        await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+        # TODO (mike): check if timeout is really nead
+        try:
+            async with asyncio.timeout(20):
+                await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+        except asyncio.TimeoutError:
+            logger.warning("Timeout while waiting for servers to sleep.")
 
     async def abort_all_requests(self) -> dict[str, Any]:
         """Abort all ongoing generation requests across all servers.
