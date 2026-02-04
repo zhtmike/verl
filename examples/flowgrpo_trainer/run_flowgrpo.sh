@@ -58,6 +58,8 @@ python3 -m verl.trainer.main_flowgrpo \
     reward_model.enable=True \
     reward_model.rollout.name=$REWARD_ENGINE \
     reward_model.rollout.tensor_model_parallel_size=4 \
+    custom_reward_function.path=$reward_path \
+    custom_reward_function.name=compute_score_ocr \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name=flow_grpo \
