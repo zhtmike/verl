@@ -563,8 +563,8 @@ class DiffusersFSDPEngine(BaseEngine):
         return output
 
     def prepare_model_inputs(self, micro_batch: TensorDict, step: int):
-        latents = micro_batch["latents"]
-        timesteps = micro_batch["timesteps"]
+        latents = micro_batch["all_latents"]
+        timesteps = micro_batch["all_timesteps"]
         prompt_embeds = micro_batch["prompt_embeds"]
         prompt_embeds_mask = micro_batch["prompt_embeds_mask"]
         negative_prompt_embeds = micro_batch["negative_prompt_embeds"]
@@ -583,7 +583,11 @@ class DiffusersFSDPEngine(BaseEngine):
         hidden_states = latents[:, step]
         timestep = timesteps[:, step] / 1000.0
         txt_seq_lens = prompt_embeds_mask.sum(dim=1).tolist()
-        negative_txt_seq_lens = negative_prompt_embeds_mask.sum(dim=1).tolist()
+
+        if isinstance(negative_prompt_embeds_mask, torch.Tensor):
+            negative_txt_seq_lens = negative_prompt_embeds_mask.sum(dim=1).tolist()
+        else:
+            negative_txt_seq_lens = None
 
         model_inputs = {
             "hidden_states": hidden_states,
@@ -620,8 +624,8 @@ class DiffusersFSDPEngine(BaseEngine):
         return model_output
 
     def forward_model_with_scheduler(self, model_inputs, negative_model_inputs, micro_batch, step):
-        latents = micro_batch["latents"]
-        timesteps = micro_batch["timesteps"]
+        latents = micro_batch["all_latents"]
+        timesteps = micro_batch["all_timesteps"]
 
         noise_pred = self.module(**model_inputs)[0]
         if self._guidance_scale > 1.0:

@@ -32,7 +32,7 @@ def create_training_config(model_type, strategy, device_count, model):
     if device_count == 1:
         cp = fsdp_size = 1
     else:
-        cp = 2
+        cp = 1  # TODO (mike): test with cp = 2
         fsdp_size = 4
     path = os.path.expanduser(model)
     tokenizer_path = os.path.join(path, "tokenizer")
@@ -127,9 +127,9 @@ def create_data_samples() -> DataProto:
             "old_log_probs": torch.randn((batch_size, num_train_timesteps)),
             "advantages": torch.randn((batch_size, num_train_timesteps)),
             "responses": torch.randn((batch_size, 3, height, width)),
-            "latents": torch.randn((batch_size, inference_steps, latent_height * latent_width, latent_dim)),
+            "all_latents": torch.randn((batch_size, inference_steps, latent_height * latent_width, latent_dim)),
             "rollout_log_probs": torch.randn((batch_size, num_train_timesteps)),
-            "timesteps": timesteps,
+            "all_timesteps": timesteps,
             "prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
             "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
             "negative_prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
@@ -139,7 +139,7 @@ def create_data_samples() -> DataProto:
         batch_size=batch_size,
     )
     data = DataProto(batch=batch)
-    data.meta_info["cached_steps"] = data.batch["timesteps"].shape[1]
+    data.meta_info["cached_steps"] = data.batch["all_timesteps"].shape[1]
     data.meta_info["global_token_num"] = torch.sum(data.batch["attention_mask"], dim=-1).tolist()
     data.meta_info["use_dynamic_bsz"] = False
     data.meta_info["micro_batch_size_per_gpu"] = 4

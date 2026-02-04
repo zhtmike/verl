@@ -691,7 +691,7 @@ class vLLMOmniReplica(RolloutReplica):
         await self.servers[0].wait_for_requests_to_drain.remote()
         # TODO (mike): check if timeout is really nead
         try:
-            async with asyncio.timeout(20):
+            async with asyncio.timeout(10):
                 await asyncio.gather(*[server.sleep.remote() for server in self.servers])
         except asyncio.TimeoutError:
             logger.warning("Timeout while waiting for servers to sleep.")
