@@ -562,7 +562,6 @@ class RayFlowGRPOTrainer:
             )
 
             # we only do validation on rule-based rm or async reward_loop
-            # NOTE: (susan) based on testing, colocated reward_loop encounters OOM
             # TODO: (susan) TBD whether support reward model worker
             if (
                 self.config.reward_model.enable

@@ -656,13 +656,13 @@ class DiffusersFSDPEngine(BaseEngine):
             model_inputs=model_inputs, negative_model_inputs=negative_model_inputs, micro_batch=micro_batch, step=step
         )
         model_output = self.prepare_model_outputs(output=raw_output, micro_batch=micro_batch)
-        micro_batch["old_log_probs"] = micro_batch["old_log_probs"][:, step]
-        micro_batch["advantages"] = micro_batch["advantages"][:, step]
 
         if loss_function is not None:
-            loss, metrics = loss_function(
-                model_output=model_output, data=micro_batch, dp_group=self.get_data_parallel_group()
+            data = tu.get_tensordict(
+                {"old_log_probs": micro_batch["old_log_probs"][:, step]},
+                {"advantages": micro_batch["advantages"][:, step]},
             )
+            loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
             loss = torch.tensor(1.0, device=device_name)
