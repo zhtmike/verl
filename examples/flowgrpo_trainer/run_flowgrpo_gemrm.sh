@@ -8,7 +8,6 @@ REWARD_ENGINE=vllm
 reward_path=tests/experimental/reward_loop/reward_fn.py
 reward_model_name=$HOME/models/Qwen/Qwen2.5-VL-3B-Instruct
 
-# Mike: free_cache_engine=True has some problem.
 
 python3 -m verl.trainer.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo \
@@ -51,21 +50,19 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.agent.default_agent_loop=diffusion_single_turn_agent \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
-    actor_rollout_ref.rollout.free_cache_engine=False \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
-    custom_reward_function.path=$reward_path \
-    custom_reward_function.name=compute_score_ocr \
     reward_model.reward_manager=diffusion \
     reward_model.model.path=$reward_model_name \
     reward_model.enable=True \
-    reward_model.use_reward_loop=True \
     reward_model.rollout.name=$REWARD_ENGINE \
     reward_model.rollout.tensor_model_parallel_size=1 \
     reward_model.enable_resource_pool=True \
     reward_model.n_gpus_per_node=1 \
     reward_model.nnodes=1 \
+    custom_reward_function.path=$reward_path \
+    custom_reward_function.name=compute_score_ocr \
     trainer.log_val_generations=6 \
     trainer.use_legacy_worker_impl=disable \
     trainer.logger='["console", "wandb"]' \
