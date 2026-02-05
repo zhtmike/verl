@@ -20,7 +20,7 @@ from verl.workers.config import DiffusersModelConfig
 
 
 def set_timesteps(scheduler: SchedulerMixin, model_config: DiffusersModelConfig):
-    # TODO (mike): use name is not robost, refactor later
+    # TODO (mike): using path name is not robust, refactor later
     if model_config.path.endswith("Qwen-Image"):
         from diffusers.pipelines.qwenimage.pipeline_qwenimage import calculate_shift
 
@@ -39,3 +39,5 @@ def set_timesteps(scheduler: SchedulerMixin, model_config: DiffusersModelConfig)
             scheduler.config.get("max_shift", 1.15),
         )
         scheduler.set_timesteps(num_inference_steps, device=get_device_name(), sigmas=sigmas, mu=mu)
+    else:
+        raise NotImplementedError("unsupported model for custom scheduler settings")

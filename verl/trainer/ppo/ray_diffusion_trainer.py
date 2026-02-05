@@ -1175,7 +1175,12 @@ class RayFlowGRPOTrainer:
             batch_td = batch.to_tensordict()
             batch_td["loss_mask"] = batch_td["response_mask"]
             # step 3: add meta info
-            metadata = {"calculate_entropy": False, "compute_loss": False}
+            metadata = {
+                "compute_loss": False,
+                "height": self.config.actor_rollout_ref.model.image_height,
+                "width": self.config.actor_rollout_ref.model.image_width,
+                "vae_scale_factor": self.config.actor_rollout_ref.model.get("vae_scale_factor", 8),
+            }
             if self.ref_in_actor:
                 metadata["no_lora_adapter"] = True
             tu.assign_non_tensor(batch_td, **metadata)
@@ -1202,10 +1207,10 @@ class RayFlowGRPOTrainer:
             # step 3: add meta info
             tu.assign_non_tensor(
                 batch_td,
-                calculate_entropy=True,
                 compute_loss=False,
-                height=self.config.actor_rollout_ref.rollout.image_height,
-                width=self.config.actor_rollout_ref.rollout.image_width,
+                height=self.config.actor_rollout_ref.model.image_height,
+                width=self.config.actor_rollout_ref.model.image_width,
+                vae_scale_factor=self.config.actor_rollout_ref.model.get("vae_scale_factor", 8),
             )
             output = self.actor_rollout_wg.compute_log_prob(batch_td)
             # gather output
@@ -1236,6 +1241,9 @@ class RayFlowGRPOTrainer:
                 epochs=ppo_epochs,
                 seed=seed,
                 dataloader_kwargs={"shuffle": shuffle},
+                height=self.config.actor_rollout_ref.model.image_height,
+                width=self.config.actor_rollout_ref.model.image_width,
+                vae_scale_factor=self.config.actor_rollout_ref.model.get("vae_scale_factor", 8),
             )
 
             actor_output = self.actor_rollout_wg.update_actor(batch_td)
@@ -1265,6 +1273,9 @@ class RayFlowGRPOTrainer:
                 epochs=ppo_epochs,
                 seed=seed,
                 dataloader_kwargs={"shuffle": shuffle},
+                height=self.config.actor_rollout_ref.model.image_height,
+                width=self.config.actor_rollout_ref.model.image_width,
+                vae_scale_factor=self.config.actor_rollout_ref.model.get("vae_scale_factor", 8),
             )
 
             output = self.critic_wg.train_mini_batch(batch_td)

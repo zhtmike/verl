@@ -569,9 +569,9 @@ class DiffusersFSDPEngine(BaseEngine):
         negative_prompt_embeds = micro_batch["negative_prompt_embeds"]
         negative_prompt_embeds_mask = micro_batch["negative_prompt_embeds_mask"]
 
-        height = tu.get_non_tensor_data(data=micro_batch, key="height", default=1024)
-        width = tu.get_non_tensor_data(data=micro_batch, key="width", default=1024)
-        vae_scale_factor = tu.get_non_tensor_data(data=micro_batch, key="vae_scale_factor", default=8)
+        height = tu.get_non_tensor_data(data=micro_batch, key="height", default=None)
+        width = tu.get_non_tensor_data(data=micro_batch, key="width", default=None)
+        vae_scale_factor = tu.get_non_tensor_data(data=micro_batch, key="vae_scale_factor", default=None)
         img_shapes = [[(1, height // vae_scale_factor // 2, width // vae_scale_factor // 2)]]
 
         if getattr(self.module.config, "guidance_embeds", False):
