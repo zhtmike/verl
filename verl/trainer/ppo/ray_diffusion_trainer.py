@@ -109,12 +109,8 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-# TODO: (susan) modify based on actual rollout output
 def compute_response_mask(data: DataProto):
-    """Compute the attention mask for the response part of the sequence.
-
-    This function extracts the portion of the attention mask that corresponds to the model's response,
-    which is used for masking computations that should only apply to response tokens.
+    """Compute the attention mask for latents
 
     Args:
         data (DataProto): The data containing batched model outputs and inputs.
@@ -122,10 +118,9 @@ def compute_response_mask(data: DataProto):
     Returns:
         torch.Tensor: The attention mask for the response tokens.
     """
-    responses = data.batch["responses"]
-    response_length = responses.size(2) * responses.size(3)
-    attention_mask = data.batch["attention_mask"]
-    return attention_mask[:, -response_length:]
+    all_latents = data.batch["all_latents"]
+    response_mask = torch.ones_like(all_latents, dtype=torch.int64)
+    return response_mask
 
 
 def compute_advantage(

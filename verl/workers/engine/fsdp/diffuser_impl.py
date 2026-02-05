@@ -57,7 +57,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.model import convert_weight_keys
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
+from verl.workers.config import DiffusersModelConfig, FSDPEngineConfig, FSDPOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
@@ -80,7 +80,7 @@ class DiffusersFSDPEngine(BaseEngine):
 
     def __init__(
         self,
-        model_config: HFModelConfig,
+        model_config: DiffusersModelConfig,
         engine_config: FSDPEngineConfig,
         optimizer_config: FSDPOptimizerConfig,
         checkpoint_config: CheckpointConfig,
@@ -344,13 +344,12 @@ class DiffusersFSDPEngine(BaseEngine):
     def _build_scheduler(self):
         # TODO (mike): generalize to other diffusers scheduler later
         from ...utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
+        from ...utils.diffusers_patch.utils import set_timesteps
 
         scheduler = FlowMatchSDEDiscreteScheduler.from_pretrained(
-            pretrained_model_name_or_path=self.model_config.local_path,
-            subfolder="scheduler",
-            use_dynamic_shifting=False,
+            pretrained_model_name_or_path=self.model_config.local_path, subfolder="scheduler"
         )
-        scheduler.set_timesteps(self.model_config.num_inference_steps, device=get_device_name())
+        set_timesteps(scheduler, self.model_config)
         return scheduler
 
     def _build_optimizer(self, module):
@@ -483,7 +482,7 @@ class DiffusersFSDPEngine(BaseEngine):
                 "loss": [],
                 "metrics": [],
             }
-            for step in range(tu.get_non_tensor_data(micro_batch, "cached_steps", 10)):
+            for step in range(micro_batch["all_timesteps"].shape[1]):
                 with ctx:
                     loss, meta_info = self.forward_step(
                         micro_batch, loss_function=loss_function, forward_only=forward_only, step=step
@@ -659,8 +658,16 @@ class DiffusersFSDPEngine(BaseEngine):
 
         if loss_function is not None:
             data = tu.get_tensordict(
-                {"old_log_probs": micro_batch["old_log_probs"][:, step]},
-                {"advantages": micro_batch["advantages"][:, step]},
+                {
+                    "old_log_probs": micro_batch["old_log_probs"][:, step],
+                    "advantages": micro_batch["advantages"][:, step],
+                    "response_mask": micro_batch["response_mask"][:, step],
+                },
+                {
+                    "dp_size": tu.get_non_tensor_data(micro_batch, "dp_size", None),
+                    "batch_num_tokens": tu.get_non_tensor_data(micro_batch, "batch_num_tokens", None),
+                    "global_batch_size": tu.get_non_tensor_data(micro_batch, "global_batch_size", None),
+                },
             )
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
         else:
