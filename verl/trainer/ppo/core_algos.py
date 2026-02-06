@@ -1045,11 +1045,12 @@ def compute_flow_grpo_outcome_advantage(
         advantages: `(torch.Tensor)`
             shape is (bs, response_length)
         Returns: `(torch.Tensor)`
-            shape is (bs, )
+            shape is (bs, response_length)
     """
     scores = token_level_rewards
     if scores.ndim == 1:
-        scores = scores.unsqueeze(-1).expand_as(response_mask)
+        scores = scores.unsqueeze(-1)
+    scores = scores.expand_as(response_mask)
 
     id2score = defaultdict(list)
     id2mean = {}

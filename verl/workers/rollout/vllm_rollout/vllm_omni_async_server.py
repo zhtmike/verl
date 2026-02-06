@@ -387,13 +387,12 @@ class vLLMOmniHttpServer:
                     lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH
                 )
 
-        # TODO (mike): unifiy sampling params
-        vllm_omni_samling_params = dict(extra_args={})
+        vllm_omni_sampling_params = dict(extra_args={})
         for k, v in sampling_params.items():
             if hasattr(OmniDiffusionRequest, k):
-                vllm_omni_samling_params[k] = v
+                vllm_omni_sampling_params[k] = v
             else:
-                vllm_omni_samling_params["extra_args"][k] = v
+                vllm_omni_sampling_params["extra_args"][k] = v
 
         generator = self.engine.generate(
             prompt="",  # TODO (mike): drop empty prompt
@@ -401,7 +400,7 @@ class vLLMOmniHttpServer:
             request_id=request_id,
             lora_request=lora_request,
             priority=priority,
-            **vllm_omni_samling_params,
+            **vllm_omni_sampling_params,
         )
 
         # Get final response

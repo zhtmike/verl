@@ -128,8 +128,8 @@ def create_data_samples(num_device: int, model_config: DiffusersModelConfig) -> 
     batch = TensorDict(
         {
             "input_ids": torch.randint(0, vocab_size, (batch_size, seq_len)),
-            "attention_mask": torch.ones((batch_size, seq_len)),
-            "response_mask": torch.ones((batch_size, seq_len)),
+            "attention_mask": torch.ones((batch_size, inference_steps)),
+            "response_mask": torch.ones((batch_size, inference_steps)),
             "old_log_probs": torch.randn((batch_size, num_diffusion_steps)),
             "advantages": torch.randn((batch_size, num_diffusion_steps)),
             "responses": torch.randn((batch_size, 3, height, width)),
@@ -140,7 +140,7 @@ def create_data_samples(num_device: int, model_config: DiffusersModelConfig) -> 
             "prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
             "negative_prompt_embeds": torch.randn((batch_size, seq_len, encoder_latent_dim)),
             "negative_prompt_embeds_mask": torch.ones((batch_size, seq_len), dtype=torch.int32),
-            "loss_mask": torch.ones((batch_size, latent_height * latent_width), dtype=torch.int32),
+            "loss_mask": torch.ones((batch_size, inference_steps), dtype=torch.int32),
         },
         batch_size=batch_size,
     )
