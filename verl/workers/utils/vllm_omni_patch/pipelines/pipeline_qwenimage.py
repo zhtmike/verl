@@ -232,10 +232,15 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         width = req.width or self.default_sample_size * self.vae_scale_factor
         num_inference_steps = req.num_inference_steps or num_inference_steps
         max_sequence_length = req.max_sequence_length or max_sequence_length
-        noise_level = req.noise_level or noise_level
-        sde_window_size = req.sde_window_size or sde_window_size
-        sde_window_range = req.sde_window_range or sde_window_range
-        sde_type = req.sde_type or sde_type
+
+        # TODO (mike): wait vllm-omni side fix
+        try:
+            noise_level = req.noise_level or noise_level
+            sde_window_size = req.sde_window_size or sde_window_size
+            sde_window_range = req.sde_window_range or sde_window_range
+            sde_type = req.sde_type or sde_type
+        except AttributeError:
+            pass
 
         generator = req.generator or generator
         if generator is None and req.seed is not None:
