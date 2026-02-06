@@ -131,7 +131,7 @@ def create_data_samples(num_device: int, model_config: DiffusersModelConfig) -> 
             "attention_mask": torch.ones((batch_size, seq_len)),
             "response_mask": torch.ones((batch_size, seq_len)),
             "old_log_probs": torch.randn((batch_size, num_train_timesteps)),
-            "advantages": torch.randn((batch_size, num_train_timesteps)),
+            "advantages": torch.randn((batch_size,)),
             "responses": torch.randn((batch_size, 3, height, width)),
             "all_latents": torch.randn((batch_size, inference_steps, latent_height * latent_width, latent_dim)),
             "rollout_log_probs": torch.randn((batch_size, num_train_timesteps)),

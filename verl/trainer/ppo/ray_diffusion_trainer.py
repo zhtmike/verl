@@ -119,7 +119,9 @@ def compute_response_mask(data: DataProto):
         torch.Tensor: The attention mask for the response tokens.
     """
     all_latents = data.batch["all_latents"]
-    response_mask = torch.ones_like(all_latents, dtype=torch.int64)
+    b, _, s, _ = all_latents.shape
+    # TODO (mike): not sure the mask is what we expect
+    response_mask = torch.ones((b, s), dtype=torch.int32)
     return response_mask
 
 
@@ -1249,8 +1251,6 @@ class RayFlowGRPOTrainer:
             actor_output = self.actor_rollout_wg.update_actor(batch_td)
             actor_output = tu.get(actor_output, "metrics")
             actor_output = rename_dict(actor_output, "actor/")
-            # modify key name
-            actor_output["perf/mfu/actor"] = actor_output.pop("actor/mfu")
             actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)

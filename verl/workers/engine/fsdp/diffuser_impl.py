@@ -660,7 +660,7 @@ class DiffusersFSDPEngine(BaseEngine):
             data = tu.get_tensordict(
                 {
                     "old_log_probs": micro_batch["old_log_probs"][:, step],
-                    "advantages": micro_batch["advantages"][:, step],
+                    "advantages": micro_batch["advantages"],
                     "response_mask": micro_batch["response_mask"][:, step],
                 },
                 {
@@ -669,6 +669,8 @@ class DiffusersFSDPEngine(BaseEngine):
                     "global_batch_size": tu.get_non_tensor_data(micro_batch, "global_batch_size", None),
                 },
             )
+            if micro_batch.get("ref_log_prob", None) is not None:
+                data["ref_log_prob"] = micro_batch["ref_log_prob"][:, step]
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
         else:
             assert forward_only, "forward_only must be True when loss_function is None"
