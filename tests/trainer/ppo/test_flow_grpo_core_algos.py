@@ -35,7 +35,7 @@ def test_flow_grpo_advantage_return(norm_adv_by_std_in_grpo: bool, global_std: b
     # prepere input
     batch_size = 8
     steps = 10
-    token_level_rewards = torch.randn((batch_size, steps), dtype=torch.float32)
+    token_level_rewards = torch.randn((batch_size, 1), dtype=torch.float32)
     response_mask = torch.ones((batch_size, steps), dtype=torch.int32)
     uid = np.array([uuid.uuid4().hex for _ in range(batch_size)])
 
