@@ -13,8 +13,8 @@ python3 -m verl.trainer.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo \
     data.train_files=$HOME/dataset/ocr/train.txt \
     data.val_files=$HOME/dataset/ocr/test.txt \
-    data.train_batch_size=8 \
-    data.val_max_samples=32 \
+    data.train_batch_size=32 \
+    data.val_max_samples=128 \
     data.max_prompt_length=1058 \
     data.filter_overlong_prompts=True \
     data.data_source=ocr \
@@ -30,8 +30,8 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.model.lora_alpha=64 \
     actor_rollout_ref.actor.optim.lr=1e-4 \
     actor_rollout_ref.actor.optim.weight_decay=0.0001 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.04 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
@@ -40,7 +40,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.param_dtype=bfloat16 \
     actor_rollout_ref.actor.policy_loss.loss_mode=flow_grpo \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.n=8 \
@@ -50,9 +50,10 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.agent.default_agent_loop=diffusion_single_turn_agent \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
+    actor_rollout_ref.rollout.max_model_len=1058 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     reward_model.reward_manager=diffusion \
     reward_model.model.path=$reward_model_name \
     reward_model.enable=True \
