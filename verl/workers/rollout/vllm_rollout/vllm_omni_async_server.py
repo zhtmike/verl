@@ -475,8 +475,7 @@ class vLLMOmniHttpServer:
             return
 
         if self.rollout_mode == RolloutMode.HYBRID:
-            # Don't use engine.sleep(level=2) here
-            await self.engine.collective_rpc("sleep", kwargs={"level": 2})
+            await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.COLOCATED:
             await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:

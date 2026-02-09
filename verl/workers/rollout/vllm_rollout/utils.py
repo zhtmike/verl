@@ -378,13 +378,12 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
             self.add_lora(lora_request)
             logger.info(f"vLLM-Omni load weights, loaded_params: {len(weights)}")
         else:
-            # Add the FP8 related logic here as sharding manager has been deprecated.
-            # Check if FP8 quantization is enabled and apply appropriate weight loading
-            if is_fp8_model(self.model_runner.vllm_config):
-                raise NotImplementedError("FP8 model is not supported in vLLM-Omni currently.")
-            else:
-                logger.info("Loading standard weights (non-FP8, async)")
-                self.model_runner.model.load_weights(weights)
+            logger.info("Loading standard weights (async)")
+            # diffusers: transformer backbone only
+            # vllm-omni: whole model
+            # thus we need to add the prefix
+            weights_with_prefix = (("transformer." + name, tensor) for name, tensor in weights)
+            self.load_weights(weights_with_prefix)
 
     def _get_zmq_handle(self) -> str:
         """Get ZMQ handle for communication."""

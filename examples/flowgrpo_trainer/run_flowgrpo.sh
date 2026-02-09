@@ -43,8 +43,6 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.guidance_scale=1.0 \
-    actor_rollout_ref.rollout.noise_level=0.8 \
-    actor_rollout_ref.rollout.sde_type=cps \
     actor_rollout_ref.rollout.agent.default_agent_loop=diffusion_single_turn_agent \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
@@ -61,6 +59,7 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.logger='["console", "wandb"]' \
     trainer.project_name=flow_grpo \
     trainer.experiment_name=qwen_image_ocr \
+    trainer.log_val_generations=8 \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \

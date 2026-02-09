@@ -39,12 +39,9 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.num_inference_steps = 40
     config.actor_rollout_ref.rollout.guidance_scale = 1.0
-    config.actor_rollout_ref.rollout.sde_type = "cps"
-    config.actor_rollout_ref.rollout.noise_level = 0.8
-    config.actor_rollout_ref.rollout.image_height = 1024
-    config.actor_rollout_ref.rollout.image_width = 1024
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
+    config.actor_rollout_ref.rollout.agent.default_agent_loop = "diffusion_single_turn_agent"
 
     qwen_pipeline = "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
     config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni = {"custom_pipeline": qwen_pipeline}
@@ -97,7 +94,6 @@ def test_single_turn(init_config):
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
-            "agent_name": np.array(["diffusion_single_turn_agent"] * len(raw_prompts)),
             "data_source": np.array(["jpeg_compressibility"] * len(raw_prompts)),
             "reward_model": np.array([{"style": "rule", "ground_truth": ""}] * len(raw_prompts)),
         },
