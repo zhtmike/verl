@@ -86,9 +86,7 @@ class vLLMOmniHttpServer:
         os.environ[get_visible_devices_keyword()] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
-        self.model_config: DiffusersModelConfig = omega_conf_to_dataclass(
-            model_config, dataclass_type=DiffusersModelConfig
-        )
+        self.model_config: DiffusersModelConfig = omega_conf_to_dataclass(model_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
