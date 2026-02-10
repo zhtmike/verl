@@ -813,7 +813,10 @@ class DiffusersFSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             peft_config = peft_model.peft_config.get("default", None)
             params = collect_lora_params(
-                module=self.module, layered_summon=layered_summon, base_sync_done=base_sync_done, is_diffusers=True
+                module=self.module,
+                layered_summon=layered_summon,
+                base_sync_done=base_sync_done,
+                is_diffusers=True,
             )
             if not base_sync_done:
                 params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
