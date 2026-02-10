@@ -48,7 +48,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.max_model_len=1058 \
-    actor_rollout_ref.rollout.sde_window_size=2 \
+    actor_rollout_ref.rollout.sde_window_size=3 \
     actor_rollout_ref.rollout.sde_window_range="[0,5]" \
     actor_rollout_ref.rollout.enforce_eager=True \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
@@ -67,5 +67,5 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
-    trainer.test_freq=1 \
+    trainer.test_freq=5 \
     trainer.total_epochs=15 $@
