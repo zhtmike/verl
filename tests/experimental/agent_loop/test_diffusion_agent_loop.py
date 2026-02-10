@@ -37,7 +37,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.enforce_eager = True
     config.actor_rollout_ref.rollout.n = 4
-    config.actor_rollout_ref.rollout.num_inference_steps = 40
+    config.actor_rollout_ref.rollout.num_inference_steps = 10
     config.actor_rollout_ref.rollout.guidance_scale = 1.0
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
