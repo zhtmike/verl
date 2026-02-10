@@ -47,8 +47,6 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.max_model_len=1058 \
-    actor_rollout_ref.rollout.noise_level=0.8 \
-    actor_rollout_ref.rollout.sde_type=cps \
     actor_rollout_ref.rollout.sde_window_size=3 \
     actor_rollout_ref.rollout.sde_window_range="[0,5]" \
     actor_rollout_ref.rollout.enforce_eager=True \
