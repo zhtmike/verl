@@ -42,7 +42,6 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.agent.num_workers = 2
     config.actor_rollout_ref.rollout.skip_tokenizer_init = True
     config.actor_rollout_ref.rollout.agent.default_agent_loop = "diffusion_single_turn_agent"
-    config.actor_rollout_ref.rollout.noise_level = 1.2
     config.actor_rollout_ref.rollout.sde_window_size = 2
     config.actor_rollout_ref.rollout.sde_window_range = [0, 5]
 
