@@ -330,9 +330,6 @@ class vLLMOmniHttpServer:
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncOmniEngineArgs.from_cli_args(args)
 
-        # TODO (mike): drop assertion
-        assert engine_args.enforce_eager
-
         kwargs = {
             "model": engine_args.model,
             "enable_sleep_mode": engine_args.enable_sleep_mode,
