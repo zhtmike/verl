@@ -47,7 +47,7 @@ def embeds_padding_2_no_padding(data: TensorDict) -> TensorDict:
     data["prompt_embeds"] = prompt_embeds_nested
     data["prompt_embeds_mask"] = prompt_embeds_mask_nested
 
-    if "negative_prompt_embeds" in data and "negative_prompt_embeds_mask" in data:
+    if isinstance(data.get("negative_prompt_embeds", None), torch.Tensor):
         negative_prompt_embeds = data["negative_prompt_embeds"]  # (bs, seq_len, dim)
         negative_prompt_embeds_mask = data["negative_prompt_embeds_mask"]  # (bs, seq_len)
         negative_prompt_embeds_list = []
