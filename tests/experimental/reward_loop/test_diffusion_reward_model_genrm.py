@@ -74,12 +74,13 @@ def test_diffusion_reward_model_manager():
         config = compose(config_name="ppo_trainer")
 
     rollout_model_name = os.path.expanduser("~/models/Qwen/Qwen-Image")
-    reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
+    reward_model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-VL-3B-Instruct")
 
     config.actor_rollout_ref.model.path = rollout_model_name
     config.actor_rollout_ref.model.tokenizer_path = os.path.join(rollout_model_name, "tokenizer")
     config.reward.custom_reward_function.path = "tests/experimental/reward_loop/reward_fn.py"
     config.reward.custom_reward_function.name = "compute_score_ocr"
+    config.reward.num_workers = 1
     config.reward.reward_manager.name = "diffusion"
     config.reward.reward_model.enable = True
     config.reward.reward_model.enable_resource_pool = True
@@ -92,7 +93,6 @@ def test_diffusion_reward_model_manager():
     config.reward.reward_model.rollout.skip_tokenizer_init = False
     config.reward.reward_model.rollout.prompt_length = 2048
     config.reward.reward_model.rollout.response_length = 4096
-    config.reward.num_workers = 1
 
     # 1. init reward model manager
     reward_loop_manager = DiffusionRewardLoopManager(config)
