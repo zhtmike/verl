@@ -512,6 +512,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if "actor" in self.role:
             actor_config: ActorConfig = omega_conf_to_dataclass(self.config.actor)
             actor_config.model_config = model_config
+            model_type = model_config.get("model_type", "language_model")
             actor_training_config = TrainingWorkerConfig(
                 model_type=model_type,
                 model_config=actor_config.model_config,

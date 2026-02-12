@@ -85,7 +85,7 @@ def test_diffusion_reward_model_manager():
     config.reward.reward_model.enable_resource_pool = True
     config.reward.reward_model.n_gpus_per_node = 2
     config.reward.reward_model.nnodes = 1
-    config.reward.reward_model.model.path = reward_model_name
+    config.reward.reward_model.model_path = reward_model_name
     config.reward.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.reward.reward_model.rollout.gpu_memory_utilization = 0.9
     config.reward.reward_model.rollout.tensor_model_parallel_size = 2

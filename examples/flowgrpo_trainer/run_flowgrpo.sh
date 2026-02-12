@@ -51,7 +51,7 @@ python3 -m verl.trainer.main_flowgrpo \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     reward.reward_manager.name=diffusion \
-    reward.reward_model.model.path=$reward_model_name \
+    reward.reward_model.model_path=$reward_model_name \
     reward.reward_model.enable=True \
     reward.reward_model.rollout.name=$REWARD_ENGINE \
     reward.custom_reward_function.path=$reward_path \
