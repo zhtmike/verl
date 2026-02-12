@@ -42,7 +42,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerCon
 from verl.utils.py_functional import append_to_dict
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
-from verl.workers.config import ActorConfig, RolloutConfig, TrainingWorkerConfig
+from verl.workers.config import ActorConfig, DiffusersModelConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
 
@@ -470,7 +470,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        model_config = omega_conf_to_dataclass(self.config.model)
+        model_config: HFModelConfig | DiffusersModelConfig = omega_conf_to_dataclass(self.config.model)
 
         # 1. build reference model
         if "ref" in self.role:
