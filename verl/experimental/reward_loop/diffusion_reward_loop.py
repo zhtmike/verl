@@ -178,12 +178,10 @@ class DiffusionRewardLoopWorker:
         engine_name = self.config.reward.reward_model.rollout.name
         model_name = self.config.reward.reward_model.model_path
         if engine_name == "vllm":
-            # TODO (dyy): the "activation" has been changed to "use_activation" in vllm 0.11.2
             payloads = {
                 "model": model_name,
                 "input": disrm_prompt,
-                "activation": False,
-                # "add_special_tokens": False,  # vllm >= 0.11.2
+                "use_activation": False,
             }
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]

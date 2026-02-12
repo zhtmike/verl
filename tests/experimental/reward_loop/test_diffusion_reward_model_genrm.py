@@ -92,6 +92,7 @@ def test_diffusion_reward_model_manager():
     config.reward.reward_model.rollout.skip_tokenizer_init = False
     config.reward.reward_model.rollout.prompt_length = 2048
     config.reward.reward_model.rollout.response_length = 4096
+    config.reward.num_workers = 1
 
     # 1. init reward model manager
     reward_loop_manager = DiffusionRewardLoopManager(config)
