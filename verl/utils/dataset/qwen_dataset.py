@@ -52,7 +52,7 @@ class QwenDataset(Dataset):
         processor: Optional[ProcessorMixin] = None,
         system_prompt: Optional[str] = None,
         max_samples: int = -1,
-        negative_prompt: str = "",
+        negative_prompt: str = " ",
     ):
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
