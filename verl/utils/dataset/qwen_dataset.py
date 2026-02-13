@@ -41,6 +41,7 @@ class QwenDataset(Dataset):
         config (DictConfig): the data config.
         template (str): The template to format the prompt.
         max_samples (int): Maximum number of samples to load. If -1, load all samples.
+        negative_prompt (str): The negative prompt for cfg.
     """
 
     def __init__(
@@ -51,6 +52,7 @@ class QwenDataset(Dataset):
         processor: Optional[ProcessorMixin] = None,
         system_prompt: Optional[str] = None,
         max_samples: int = -1,
+        negative_prompt: str = "",
     ):
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
@@ -64,6 +66,7 @@ class QwenDataset(Dataset):
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/qwen"))
         self.prompt_key = config.get("prompt_key", "prompt")
+        self.negative_prompt_key = config.get("negative_prompt_key", "negative_prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
@@ -103,6 +106,7 @@ class QwenDataset(Dataset):
         self.system_message_template = [
             {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
         ]
+        self.negative_prompt = negative_prompt
 
         self._download()
         self._read_files_and_tokenize()
@@ -129,11 +133,16 @@ class QwenDataset(Dataset):
                 # for caption only data, convert caption to messages
                 # TODO (mike): the system message should support other format
                 if isinstance(dataframe["text"][0], str):
-                    new_column = []
+                    prompt_column, negative_prompt_column = [], []
                     for caption in dataframe["text"]:
                         user_message = [{"role": "user", "content": caption}]
-                        new_column.append(self.system_message_template + user_message)
-                    dataframe = dataframe.add_column(self.prompt_key, new_column)
+                        prompt_column.append(self.system_message_template + user_message)
+
+                        nagative_user_message = [{"role": "user", "content": self.negative_prompt}]
+                        negative_prompt_column.append(self.system_message_template + nagative_user_message)
+
+                    dataframe = dataframe.add_column(self.prompt_key, prompt_column)
+                    dataframe = dataframe.add_column(self.negative_prompt_key, negative_prompt_column)
                     dataframe = dataframe.remove_columns("text")
                 else:
                     dataframe = dataframe.rename_column("text", self.prompt_key)
@@ -273,7 +282,7 @@ class QwenDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
+    def _build_messages(self, example: dict, is_negative_prompt=False) -> list:
         """Replace <image> and <video> placeholder in messages with corresponding image and video
         which is required by processor.apply_chat_template.
         - <image>: {"type": "image", **image}
@@ -285,7 +294,10 @@ class QwenDataset(Dataset):
         Returns:
             messages: List of messages with replaced placeholder.
         """
-        messages: list = example[self.prompt_key]
+        if is_negative_prompt:
+            messages: list = example[self.negative_prompt_key]
+        else:
+            messages: list = example[self.prompt_key]
         # When concatenating image and video datasets, pop will return None for image or video sample
         images = example.pop(self.image_key, None) or []
         videos = example.pop(self.video_key, None) or []
@@ -352,6 +364,7 @@ class QwenDataset(Dataset):
 
         # add reward related non-tensor inputs
         row_dict["raw_prompt"] = self._build_messages(row_dict)
+        row_dict["raw_negative_prompt"] = self._build_messages(row_dict, is_negative_prompt=True)
         row_dict["reward_model"] = {"style": "model"}
         row_dict["data_source"] = self.data_source
         ground_truth = self.get_ground_truth(row_dict["raw_prompt"], row_dict["data_source"])
