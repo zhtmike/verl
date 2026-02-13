@@ -195,7 +195,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
         req: OmniDiffusionRequest,
         prompt_ids: torch.Tensor | list[int] | None = None,
         prompt_mask: torch.Tensor | None = None,
-        negative_prompt_ids: torch.Tensor | None = None,
+        negative_prompt_ids: torch.Tensor | list[int] | None = None,
         negative_prompt_mask: torch.Tensor | None = None,
         true_cfg_scale: float = 4.0,
         height: int | None = None,
@@ -257,6 +257,9 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
             batch_size = prompt_ids.shape[0] if prompt_ids.ndim == 2 else 1
         else:
             batch_size = prompt_embeds.shape[0]
+
+        if isinstance(negative_prompt_ids, list):
+            negative_prompt_ids = torch.tensor(negative_prompt_ids, device=self.device)
 
         has_neg_prompt = negative_prompt_ids is not None or (
             negative_prompt_embeds is not None and negative_prompt_embeds_mask is not None

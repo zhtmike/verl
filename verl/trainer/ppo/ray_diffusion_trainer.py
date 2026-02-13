@@ -509,9 +509,6 @@ class RayFlowGRPOTrainer:
 
             test_gen_batch = self._get_gen_batch(test_batch)
             test_gen_batch.meta_info = {
-                "noise_level": self.config.actor_rollout_ref.rollout.val_kwargs.noise_level,
-                "num_inference_steps": self.config.actor_rollout_ref.rollout.val_kwargs.num_inference_steps,
-                "seed": self.config.actor_rollout_ref.rollout.val_kwargs.seed,
                 "recompute_log_prob": False,
                 "validate": True,
                 "global_steps": self.global_steps,
@@ -808,7 +805,7 @@ class RayFlowGRPOTrainer:
         if manager_class_fqn:
             AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
         else:
-            from verl.experimental.agent_loop import DiffusionAgentLoopManager as AgentLoopManager
+            from verl.experimental.agent_loop import AgentLoopManager
 
         # infrastructure overview: https://verl.readthedocs.io/en/latest/advance/reward_loop.html#architecture-design
         # agent_reward_loop: streaming reward computation with actor rollout

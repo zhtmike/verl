@@ -376,6 +376,7 @@ class vLLMOmniHttpServer:
         request_id: str,
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
+        negative_prompt_ids: Optional[list[int]] = None,
         priority: int = 0,
     ) -> ImageOutput:
         """Generate sequence with token-in-image-out."""
@@ -410,6 +411,7 @@ class vLLMOmniHttpServer:
             request_id=request_id,
             lora_request=lora_request,
             priority=priority,
+            negative_prompt_ids=negative_prompt_ids,
             **vllm_omni_sampling_params,
         )
 
