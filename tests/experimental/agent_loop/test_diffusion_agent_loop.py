@@ -93,9 +93,19 @@ def test_single_turn(init_config):
             ]
         )
 
+    raw_negative_prompts = []
+    for user_prompt in user_prompts:
+        raw_negative_prompts.append(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
+            "raw_negative_prompts": np.array(raw_negative_prompts),
             "data_source": np.array(["jpeg_compressibility"] * len(raw_prompts)),
             "reward_model": np.array([{"style": "rule", "ground_truth": ""}] * len(raw_prompts)),
         },

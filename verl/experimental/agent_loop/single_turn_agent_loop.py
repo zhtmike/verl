@@ -93,7 +93,7 @@ class DiffusionSingleTurnAgentLoop(AgentLoopBase):
         raw_prompt = kwargs["raw_prompt"]
 
         if self.config.actor_rollout_ref.rollout.guidance_scale > 0:
-            raw_negative_prompts = kwargs.get("raw_negative_prompts", " ")
+            raw_negative_prompts = kwargs["raw_negative_prompts"]
         else:
             raw_negative_prompts = None
 
