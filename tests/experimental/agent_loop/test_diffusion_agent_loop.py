@@ -105,7 +105,7 @@ def test_single_turn(init_config):
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
-            "raw_negative_prompts": np.array(raw_negative_prompts),
+            "raw_negative_prompt": np.array(raw_negative_prompts),
             "data_source": np.array(["jpeg_compressibility"] * len(raw_prompts)),
             "reward_model": np.array([{"style": "rule", "ground_truth": ""}] * len(raw_prompts)),
         },

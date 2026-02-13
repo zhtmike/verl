@@ -93,9 +93,9 @@ class DiffusionSingleTurnAgentLoop(AgentLoopBase):
         raw_prompt = kwargs["raw_prompt"]
 
         if self.config.actor_rollout_ref.rollout.guidance_scale > 0:
-            raw_negative_prompts = kwargs["raw_negative_prompts"]
+            raw_negative_prompt = kwargs["raw_negative_prompt"]
         else:
-            raw_negative_prompts = None
+            raw_negative_prompt = None
 
         # 1. extract images and videos from messages
         multi_modal_data = await self.process_vision_info(raw_prompt)
@@ -105,8 +105,8 @@ class DiffusionSingleTurnAgentLoop(AgentLoopBase):
         # 2. apply chat template and tokenize
         prompt_ids = await self.apply_chat_template(raw_prompt, images=images, videos=videos)
 
-        if raw_negative_prompts is not None:
-            negative_prompt_ids = await self.apply_chat_template(raw_negative_prompts, images=images, videos=videos)
+        if raw_negative_prompt is not None:
+            negative_prompt_ids = await self.apply_chat_template(raw_negative_prompt, images=images, videos=videos)
 
         # 3. generate sequences
         metrics = {}
