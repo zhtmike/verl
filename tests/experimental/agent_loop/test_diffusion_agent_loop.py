@@ -98,7 +98,7 @@ def test_single_turn(init_config):
         raw_negative_prompts.append(
             [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": " "},
             ]
         )
 
