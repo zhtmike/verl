@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 import ray
 from omegaconf import DictConfig
-from PIL import Image
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopManager
 from verl.protocol import DataProto
@@ -129,12 +128,6 @@ def test_single_turn(init_config):
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
     assert np.all(num_turns == 2)
-
-    # TODO: for visualization, drop later
-    images_pil = (result.batch["responses"].permute(0, 2, 3, 1).numpy() * 255.0).astype("uint8")
-    for i, image in enumerate(images_pil):
-        image_path = os.path.join(f"{i}.jpg")
-        Image.fromarray(image).save(image_path)
 
     print("Test passed!")
     ray.shutdown()
