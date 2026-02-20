@@ -44,7 +44,7 @@ if __name__ == "__main__":
     if args.local_dataset_path is not None:
         local_dataset_path = os.path.expanduser(args.local_dataset_path)
 
-    data_source = "flow_grpo/tree/main/dataset/ocr"
+    data_source = "flow_grpo/ocr"
 
     if local_dataset_path is not None:
         dataset = datasets.load_dataset(local_dataset_path)
