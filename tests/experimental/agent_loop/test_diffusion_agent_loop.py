@@ -47,8 +47,6 @@ def init_config() -> DictConfig:
 
     qwen_pipeline = "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
     config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni = {"custom_pipeline": qwen_pipeline}
-    config.data.custom_cls.path = "verl/utils/dataset/qwen_dataset.py"
-    config.data.custom_cls.name = "QwenDataset"
     config.reward.reward_manager.name = "image"
     config.trainer.n_gpus_per_node = 4
 

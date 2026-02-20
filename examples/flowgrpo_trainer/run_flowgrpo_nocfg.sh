@@ -2,6 +2,9 @@
 set -x
 export TOKENIZERS_PARALLELISM="false"
 
+ocr_train_path=$HOME/data/ocr/train.parquet
+ocr_test_path=$HOME/data/ocr/test.parquet
+
 ENGINE=vllm_omni
 REWARD_ENGINE=vllm
 
@@ -11,15 +14,12 @@ reward_model_name=$HOME/models/Qwen/Qwen2.5-VL-3B-Instruct
 
 python3 -m verl.trainer.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo \
-    data.train_files=$HOME/dataset/ocr/train.txt \
-    data.val_files=$HOME/dataset/ocr/test.txt \
+    data.train_files=$ocr_train_path \
+    data.val_files=$ocr_test_path \
     data.train_batch_size=32 \
     data.val_max_samples=128 \
     data.max_prompt_length=1058 \
     data.filter_overlong_prompts=True \
-    data.data_source=ocr \
-    data.custom_cls.path=verl/utils/dataset/qwen_dataset.py \
-    data.custom_cls.name=QwenDataset \
     +data.apply_chat_template_kwargs.max_length=1058 \
     +data.apply_chat_template_kwargs.padding=True \
     +data.apply_chat_template_kwargs.truncation=True \
