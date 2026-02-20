@@ -34,7 +34,7 @@ class FlowMatchSDEDiscreteSchedulerOutput(BaseOutput):
             The log probability of the previous sample.
         prev_sample_mean (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_channels)` for images):
             The mean of the computed sample of previous timestep.
-        std_dev_t (`torch.FloatTensor` of shape `(batch_size,)`):
+        std_dev_t (`torch.FloatTensor` of shape `(batch_size, 1, 1)`):
             The standard deviation used to compute `prev_sample`.
     """
 

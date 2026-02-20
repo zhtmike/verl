@@ -32,7 +32,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.actor.optim.weight_decay=0.0001 \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
-    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
@@ -50,7 +50,7 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.sde_window_range="[0,5]" \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
-    reward.reward_manager.name=diffusion \
+    reward.reward_manager.name=image \
     reward.reward_model.model_path=$reward_model_name \
     reward.reward_model.enable=True \
     reward.reward_model.rollout.name=$REWARD_ENGINE \

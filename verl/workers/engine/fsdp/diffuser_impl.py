@@ -59,10 +59,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.model import convert_weight_keys
 from verl.utils.py_functional import convert_to_regular_types
-from verl.utils.ulysses import (
-    get_ulysses_sequence_parallel_group,
-    set_ulysses_sequence_parallel_group,
-)
+from verl.utils.ulysses import get_ulysses_sequence_parallel_group, set_ulysses_sequence_parallel_group
 from verl.workers.config import DiffusersModelConfig, FSDPEngineConfig, FSDPOptimizerConfig
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
@@ -663,13 +660,11 @@ class DiffusersFSDPEngine(BaseEngine):
         return model_inputs, negative_model_inputs
 
     def prepare_model_outputs(self, output, micro_batch: TensorDict):
-        use_kl_loss = tu.get_non_tensor_data(micro_batch, "use_kl_loss", False)
         log_prob, prev_sample_mean, std_dev_t = output
         model_output = {}
         model_output["log_probs"] = log_prob
-        if use_kl_loss:
-            model_output["prev_sample_mean"] = prev_sample_mean
-            model_output["std_dev_t"] = std_dev_t
+        model_output["prev_sample_mean"] = prev_sample_mean
+        model_output["std_dev_t"] = std_dev_t
         return model_output
 
     def forward_model_with_scheduler(self, model_inputs, negative_model_inputs, micro_batch, step):

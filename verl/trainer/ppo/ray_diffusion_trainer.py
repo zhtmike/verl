@@ -737,7 +737,7 @@ class RayFlowGRPOTrainer:
             self.ref_policy_wg = self.actor_rollout_wg
 
         # create reward loop manager
-        from verl.experimental.reward_loop import DiffusionRewardLoopManager as RewardLoopManager
+        from verl.experimental.reward_loop import RewardLoopManager
 
         # initalize reward loop manager
         # reward model (colocate or standalone): get resource_pool

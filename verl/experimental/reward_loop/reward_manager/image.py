@@ -20,21 +20,11 @@ from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score_image
 
 
-@register("diffusion")
-class DiffusionRewardManager(RewardManagerBase):
-    """The reward manager for diffusion models."""
+@register("image")
+class ImageRewardManager(RewardManagerBase):
+    """The reward manager for image response."""
 
     def __init__(self, config, tokenizer, compute_score, reward_router_address=None, reward_model_tokenizer=None):
-        """Initialize reward manager.
-
-        Args:
-            config (DictConfig): YAML config.
-            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
-            compute_score (Callable, optional): Custom reward score function. Defaults to None.
-            reward_router_address (str, optional): The address of the reward router service. Defaults to None.
-            reward_model_tokenizer (AutoTokenizer): Tokenizer for tokenize reward messages.
-        """
-
         super().__init__(config, tokenizer, compute_score)
         self.compute_score = compute_score or default_compute_score_image
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
