@@ -261,7 +261,7 @@ class DiffusersModelConfig(BaseConfig):
     lora_rank: int = 32
     lora_alpha: int = 64
     lora_init_weights: str = "gaussian"
-    target_modules: Optional[str | list[str]] = "all-linear"
+    target_modules: Optional[Any] = "all-linear"  # allow both "all-linear" and ["q_proj","k_proj"]
     target_parameters: Optional[list[str]] = None  # for lora adapter on nn.Parameter
 
     exclude_modules: Optional[str] = None
@@ -304,6 +304,20 @@ class DiffusersModelConfig(BaseConfig):
                 )
             else:
                 self.processor = None
+
+        # Ensure target_modules is a str or list[str] (only if not None)
+        if self.target_modules is not None:
+            if not isinstance(self.target_modules, (str | list)):
+                raise TypeError(
+                    "target_modules must be a string or a list of strings, "
+                    f"but got {type(self.target_modules).__name__}"
+                )
+            if isinstance(self.target_modules, list):
+                for x in self.target_modules:
+                    if not isinstance(x, str):
+                        raise TypeError(
+                            f"All elements in target_modules list must be strings, but found {type(x).__name__}"
+                        )
 
     def get_processor(self):
         return self.processor if self.processor is not None else self.tokenizer

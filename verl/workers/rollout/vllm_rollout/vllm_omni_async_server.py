@@ -194,11 +194,15 @@ class vLLMOmniHttpServer:
             set_expandable_segments(True)
 
         quantization = self.config.quantization
-
-        if quantization is not None:
-            raise NotImplementedError("vLLM-Omni server does not support quantization yet.")
-
         hf_overrides = {}
+
+        # Handle QAT (Quantization-Aware Training) configuration
+        qat_config_dict = getattr(self.config, "qat", {}) or {}
+        if qat_config_dict.get("enable", False):
+            raise NotImplementedError("vLLM-Omni server does not support QAT (Quantization-Aware Training) yet.")
+        elif quantization is not None:
+            # Handle other quantization methods (fp8, torchao)
+            raise NotImplementedError("vLLM-Omni server does not support quantization yet.")
 
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
