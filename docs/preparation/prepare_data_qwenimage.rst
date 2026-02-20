@@ -16,6 +16,12 @@ The following code snippet shows how to prepare the data for post-training.
 
     import datasets
 
+    SYSTEM_PROMPT = (
+        "Describe the image by detailing the color, shape, size, "
+        "texture, quantity, text, spatial relationships of the objects and background:"
+    )
+    NEGATIVE_USER_PROMPT = " "
+
 
     def extract_solution(solution_str):
         # The solution is stored in the format: 'The image displays "xxx".'
@@ -29,12 +35,12 @@ The following code snippet shows how to prepare the data for post-training.
             data = {
                 "data_source": data_source,
                 "prompt": [
-                    {
-                        "role": "system",
-                        "content": "Describe the image by detailing the color, "
-                        "shape, size, texture, quantity, text, spatial relationships of the objects and background:",
-                    },
+                    {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text},
+                ],
+                "negative_prompt": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": NEGATIVE_USER_PROMPT},
                 ],
                 "ability": "ocr",
                 "reward_model": {"style": "rule", "ground_truth": solution},
