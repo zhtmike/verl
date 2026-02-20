@@ -17,7 +17,6 @@ python3 -m verl.trainer.main_flowgrpo \
     data.train_files=$ocr_train_path \
     data.val_files=$ocr_test_path \
     data.train_batch_size=32 \
-    data.val_max_samples=128 \
     data.max_prompt_length=1058 \
     data.filter_overlong_prompts=True \
     +data.apply_chat_template_kwargs.max_length=1058 \
@@ -46,8 +45,9 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.max_model_len=1058 \
-    actor_rollout_ref.rollout.sde_window_size=3 \
+    actor_rollout_ref.rollout.sde_window_size=2 \
     actor_rollout_ref.rollout.sde_window_range="[0,5]" \
+    actor_rollout_ref.rollout.val_kwargs.num_inference_steps=50 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm_omni.custom_pipeline=verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     reward.reward_manager.name=image \
@@ -61,8 +61,9 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.project_name=flow_grpo \
     trainer.experiment_name=qwen_image_ocr \
     trainer.log_val_generations=8 \
+    trainer.val_before_train=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
-    trainer.test_freq=5 \
+    trainer.save_freq=30 \
+    trainer.test_freq=30 \
     trainer.total_epochs=15 $@
