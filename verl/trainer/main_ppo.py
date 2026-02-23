@@ -339,7 +339,9 @@ class TaskRunner:
 
         # Initialize the PPO trainer.
         trainer_cls = (
-            RayFlowGRPOTrainer if config.actor_rollout_ref.model.model_type == "diffusion_model" else RayPPOTrainer
+            RayFlowGRPOTrainer
+            if config.actor_rollout_ref.model.get("model_type", None) == "diffusion_model"
+            else RayPPOTrainer
         )
         trainer = trainer_cls(
             config=config,

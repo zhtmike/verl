@@ -12,7 +12,8 @@ reward_path=tests/experimental/reward_loop/reward_fn.py
 reward_model_name=$HOME/models/Qwen/Qwen2.5-VL-3B-Instruct
 
 
-python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.main_ppo --config-path=config \
+    --config-name='ppo_diffusion_trainer.yaml' \
     algorithm.adv_estimator=flow_grpo \
     data.train_files=$ocr_train_path \
     data.val_files=$ocr_test_path \
