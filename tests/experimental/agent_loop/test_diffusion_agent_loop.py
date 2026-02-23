@@ -45,7 +45,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.sde_window_size = 2
     config.actor_rollout_ref.rollout.sde_window_range = [0, 5]
 
-    qwen_pipeline = "verl.workers.utils.vllm_omni_patch.pipelines.pipeline_qwenimage.QwenImagePipelineWithLogProb"
+    qwen_pipeline = "verl.utils.vllm_omni.pipelines.QwenImagePipelineWithLogProb"
     config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni = {"custom_pipeline": qwen_pipeline}
     config.reward.reward_manager.name = "image"
     config.trainer.n_gpus_per_node = 4

@@ -365,8 +365,8 @@ class DiffusersFSDPEngine(BaseEngine):
 
     def _build_scheduler(self):
         # TODO (mike): generalize to other diffusers scheduler later
-        from ...utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
-        from ...utils.diffusers_patch.utils import set_timesteps
+        from verl.utils.diffusers.schedulers import FlowMatchSDEDiscreteScheduler
+        from verl.utils.diffusers.utils import set_timesteps
 
         scheduler = FlowMatchSDEDiscreteScheduler.from_pretrained(
             pretrained_model_name_or_path=self.model_config.local_path, subfolder="scheduler"

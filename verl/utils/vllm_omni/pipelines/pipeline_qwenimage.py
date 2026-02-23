@@ -19,8 +19,8 @@ from vllm_omni.diffusion.data import OmniDiffusionConfig
 from vllm_omni.diffusion.models.qwen_image import QwenImagePipeline
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 
-from verl.workers.utils.diffusers_patch.schedulers import FlowMatchSDEDiscreteScheduler
-from verl.workers.utils.vllm_omni_patch.data import DiffusionOutput
+from verl.utils.diffusers.schedulers import FlowMatchSDEDiscreteScheduler
+from verl.utils.vllm_omni.data import DiffusionOutput
 
 
 class QwenImagePipelineWithLogProb(QwenImagePipeline):

@@ -33,7 +33,7 @@ Problem:
 Solution:
 {solution}
 
-Please evaluate how well the solution addresses the problem.
+Please evaluate how well the solution addresses the problem. 
 Give a score from 1 to 10, where:
 - 1 means the solution is completely irrelevant or incorrect.
 - 5 means the solution is partially correct but incomplete or not well reasoned.
