@@ -223,7 +223,6 @@ class vLLMOmniHttpServer:
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
-            "skip_tokenizer_init": False,
             "distributed_executor_backend": "mp",
             "worker_extension_cls": "verl.workers.rollout.vllm_rollout.utils.vLLMOmniColocateWorkerExtension",
             "trust_remote_code": self.model_config.trust_remote_code,
