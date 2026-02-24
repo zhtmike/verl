@@ -247,9 +247,6 @@ actor_rollout_ref:
       temperature: 0
       'n': 1
       do_sample: false
-      num_inference_steps: 40
-      noise_level: 0.0
-      seed: 42
     multi_turn:
       _target_: verl.workers.config.MultiTurnConfig
       enable: false
