@@ -14,6 +14,7 @@ reward_model_name=$HOME/models/Qwen/Qwen3-VL-8B-Instruct
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_diffusion_trainer.yaml' \
     algorithm.adv_estimator=flow_grpo \
+    algorithm.rollout_correction.bypass_mode=True \
     data.train_files=$ocr_train_path \
     data.val_files=$ocr_test_path \
     data.train_batch_size=32 \
