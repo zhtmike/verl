@@ -30,7 +30,7 @@ class FlowMatchSDEDiscreteSchedulerOutput(BaseOutput):
         prev_sample (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_channels)` for images):
             Computed sample `(x_{t-1})` of previous timestep. `prev_sample` should be used as next model input in the
             denoising loop.
-        log_prob (`torch.FloatTensor` of shape `(batch_size,)`):
+        log_prob (`torch.FloatTensor` of shape `(batch_size,)`, *optional*):
             The log probability of the previous sample.
         prev_sample_mean (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_channels)` for images):
             The mean of the computed sample of previous timestep.
@@ -39,7 +39,7 @@ class FlowMatchSDEDiscreteSchedulerOutput(BaseOutput):
     """
 
     prev_sample: torch.FloatTensor
-    log_prob: torch.FloatTensor
+    log_prob: Optional[torch.FloatTensor]
     prev_sample_mean: torch.FloatTensor
     std_dev_t: torch.FloatTensor
 
@@ -60,6 +60,7 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
         noise_level: float = 0.7,
         prev_sample: Optional[torch.FloatTensor] = None,
         sde_type: Literal["sde", "cps"] = "sde",
+        logprobs: bool = True,
     ) -> FlowMatchSDEDiscreteSchedulerOutput | tuple:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
@@ -125,6 +126,7 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
             noise_level=noise_level,
             prev_sample=prev_sample,
             sde_type=sde_type,
+            logprobs=logprobs,
         )
 
         # upon completion increase step index by one
@@ -149,6 +151,7 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
         noise_level: float = 0.7,
         prev_sample: Optional[torch.Tensor] = None,
         sde_type: Literal["cps", "sde"] = "sde",
+        logprobs: bool = True,
     ):
         # check inputs
         assert sample.dtype == torch.float32
@@ -188,11 +191,14 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
                 )
                 prev_sample = prev_sample_mean + std_dev_t * torch.sqrt(-1 * dt) * variance_noise
 
-            log_prob = (
-                -((prev_sample.detach() - prev_sample_mean) ** 2) / (2 * ((std_dev_t * torch.sqrt(-1 * dt)) ** 2))
-                - torch.log(std_dev_t * torch.sqrt(-1 * dt))
-                - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi)))
-            )
+            if logprobs:
+                log_prob = (
+                    -((prev_sample.detach() - prev_sample_mean) ** 2) / (2 * ((std_dev_t * torch.sqrt(-1 * dt)) ** 2))
+                    - torch.log(std_dev_t * torch.sqrt(-1 * dt))
+                    - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi)))
+                )
+            else:
+                log_prob = None
 
         elif sde_type == "cps":
             std_dev_t = sigma_next * math.sin(noise_level * math.pi / 2)  # sigma_t in paper
@@ -212,8 +218,11 @@ class FlowMatchSDEDiscreteScheduler(FlowMatchEulerDiscreteScheduler):
                 prev_sample = prev_sample_mean + std_dev_t * variance_noise
 
             # remove all constants
-            log_prob = -((prev_sample.detach() - prev_sample_mean) ** 2)
+            if logprobs:
+                log_prob = -((prev_sample.detach() - prev_sample_mean) ** 2)
+            else:
+                log_prob = None
 
         # mean along all but batch dimension
-        log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim)))
+        log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim))) if log_prob is not None else None
         return prev_sample, log_prob, prev_sample_mean, std_dev_t
