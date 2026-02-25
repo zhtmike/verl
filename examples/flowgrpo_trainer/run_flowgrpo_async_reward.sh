@@ -18,7 +18,6 @@ reward_router_address=localhost:9529
 CUDA_VISIBLE_DEVICES=1,2,3,4 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_diffusion_trainer.yaml' \
     algorithm.adv_estimator=flow_grpo \
-    algorithm.rollout_correction.bypass_mode=True \
     data.train_files=$ocr_train_path \
     data.val_files=$ocr_test_path \
     data.train_batch_size=32 \
@@ -47,7 +46,6 @@ CUDA_VISIBLE_DEVICES=1,2,3,4 python3 -m verl.trainer.main_ppo --config-path=conf
     actor_rollout_ref.rollout.guidance_scale=1.0 \
     actor_rollout_ref.rollout.agent.default_agent_loop=diffusion_single_turn_agent \
     actor_rollout_ref.rollout.agent.num_workers=4 \
-    actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.max_model_len=1058 \
