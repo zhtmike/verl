@@ -204,6 +204,8 @@ actor_rollout_ref:
     _target_: verl.workers.config.DiffusionRolloutConfig
     name: ???
     mode: async
+    nnodes: 0
+    n_gpus_per_node: ${oc.select:trainer.n_gpus_per_node,8}
     prompt_length: ${oc.select:data.max_prompt_length,512}
     dtype: bfloat16
     gpu_memory_utilization: 0.5
@@ -309,6 +311,7 @@ actor_rollout_ref:
     tokenizer_path: null
     use_shm: false
     trust_remote_code: false
+    custom_chat_template: null
     external_lib: null
     enable_gradient_checkpointing: true
     enable_activation_offload: false

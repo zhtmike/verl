@@ -7,6 +7,12 @@ name: ???
 # sync: LLM, async: AsyncLLM
 mode: async
 
+# Number of nodes for standalone rollout server, must be > 0 in one-step-off/fully async training.
+nnodes: 0
+
+# Number of GPUs per node for rollout server.
+n_gpus_per_node: ${oc.select:trainer.n_gpus_per_node,8}
+
 # typically the same as data max prompt length
 # same as data.max_prompt_length if it exists
 prompt_length: ${oc.select:data.max_prompt_length,512}

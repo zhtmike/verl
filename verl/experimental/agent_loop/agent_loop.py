@@ -36,11 +36,9 @@ from verl.experimental.agent_loop.prometheus_utils import update_prometheus_conf
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
-from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.chat_template import initialize_system_prompt
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.rl_dataset import RLHFDataset, get_dataset_class
-from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.ray_utils import auto_await, get_event_loop
 from verl.utils.rollout_trace import (
@@ -49,7 +47,7 @@ from verl.utils.rollout_trace import (
     rollout_trace_op,
 )
 from verl.utils.transferqueue_utils import tqbridge
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import DiffusersModelConfig, HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import ImageOutput, TokenOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
@@ -879,7 +877,13 @@ class AgentLoopWorker:
 
 
 class DiffusionAgentLoopWorker:
-    """Agent loop worker takes a batch of messages and run each message in an agent loop."""
+    """Diffusion Agent loop worker takes a batch of messages and run each message in an agent loop.
+
+    Args:
+        config (DictConfig): whole config for main entrypoint.
+        server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+        reward_loop_worker_handles (List[ray.actor.ActorHandle]): Actor handles for streaming reward computation.
+    """
 
     def __init__(
         self,
@@ -887,13 +891,10 @@ class DiffusionAgentLoopWorker:
         server_handles: list[ray.actor.ActorHandle],
         reward_loop_worker_handles: list[ray.actor.ActorHandle] = None,
     ):
-        """Initialize agent loop manager.
-        Args:
-            config (DictConfig): YAML config.
-            server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
-            reward_loop_worker_handles (List[ray.actor.ActorHandle]): Actor handles for streaming reward computation.
-        """
         self.config = config
+        rollout_config, model_config = _get_rollout_and_model_config(config)
+        self.rollout_config: RolloutConfig = omega_conf_to_dataclass(rollout_config)
+        self.model_config: DiffusersModelConfig = omega_conf_to_dataclass(model_config)
 
         # for recipe to change
         if not hasattr(self, "server_manager"):
@@ -902,31 +903,24 @@ class DiffusionAgentLoopWorker:
         self.dataset_cls = get_dataset_class(config.data)
         self.reward_loop_worker_handles = reward_loop_worker_handles
 
-        model_path = config.actor_rollout_ref.model.path
-        self.model_name = "/".join(model_path.split("/")[-2:])
-        local_path = copy_to_local(config.actor_rollout_ref.model.path)
-        # see issue https://github.com/huggingface/tokenizers/issues/537, we use a non-fast tokenizer here
-        self.tokenizer = hf_tokenizer(os.path.join(local_path, "tokenizer"), trust_remote_code=True, use_fast=False)
-        if os.path.exists(os.path.join(local_path, "processor")):
-            self.processor = hf_processor(os.path.join(local_path, "processor"), trust_remote_code=True)
-        else:
-            self.processor = None
+        self.tokenizer = self.model_config.tokenizer
+        self.processor = self.model_config.processor
 
-        agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
+        agent_loop_config_path = self.rollout_config.agent.agent_loop_config_path
         if agent_loop_config_path:
             resolved_path = resolve_config_path(agent_loop_config_path)
             agent_loop_configs = OmegaConf.load(resolved_path)
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
-        if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
-            self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
+        if self.model_config.get("custom_chat_template", None) is not None:
+            if self.model_config.processor is not None:
+                self.model_config.processor.chat_template = self.model_config.custom_chat_template
+            self.model_config.tokenizer.chat_template = self.model_config.custom_chat_template
 
-        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
+        trace_config = self.rollout_config.trace
         RolloutTraceConfig.init(
-            self.config.trainer.project_name,
-            self.config.trainer.experiment_name,
+            self.rollout_config.trace.project_name,
+            self.rollout_config.trace.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
             trace_config.get("max_samples_per_step_per_worker", None),
@@ -945,7 +939,7 @@ class DiffusionAgentLoopWorker:
             - responses: [bsz, channel, height, width],  output images from diffusion generation.
             ...
         """
-        config = self.config.actor_rollout_ref.rollout
+        config = self.rollout_config
 
         # TODO (mike): it is for Qwen-Image only, need to generalize later
         sampling_params = dict(
@@ -1042,7 +1036,7 @@ class DiffusionAgentLoopWorker:
                 tokenizer=self.tokenizer,
                 processor=self.processor,
                 dataset_cls=self.dataset_cls,
-                dataset_config=DictConfigWrap(self.config.data),
+                data_config=DictConfigWrap(self.config.data),
             )
             output: DiffusionAgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
             return await self._agent_loop_postprocess(output, **kwargs)
@@ -1071,7 +1065,7 @@ class DiffusionAgentLoopWorker:
         prompt_output = self.tokenizer.pad(
             {"input_ids": output.prompt_ids},
             padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+            max_length=self.rollout_config.prompt_length,
             return_tensors="pt",
             return_attention_mask=True,
         )
@@ -1101,7 +1095,9 @@ class DiffusionAgentLoopWorker:
             input_ids=input_ids,
             kwargs=kwargs,
         )
-        extra_fields["reward_extra_info"] = output.extra_fields["reward_extra_info"]
+
+        if "reward_extra_info" in output.extra_fields:
+            extra_fields["reward_extra_info"] = output.extra_fields["reward_extra_info"]
 
         return _InternalDiffusionAgentLoopOutput(
             prompt_ids=input_ids,

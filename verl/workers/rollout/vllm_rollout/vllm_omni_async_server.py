@@ -31,15 +31,13 @@ from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_sta
 from vllm_omni.lora.request import LoRARequest
 from vllm_omni.outputs import OmniRequestOutput
 
-from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_resource_name, get_visible_devices_keyword
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler import DistProfiler
 from verl.workers.config import DiffusersModelConfig, DiffusionRolloutConfig
 from verl.workers.rollout.replica import ImageOutput, RolloutMode, RolloutReplica
-from verl.workers.rollout.utils import run_unvicorn
-from verl.workers.rollout.vllm_rollout import vLLMOmniServerAdapter
+from verl.workers.rollout.utils import run_uvicorn
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
@@ -117,10 +115,10 @@ class vLLMOmniHttpServer:
         if self.node_rank == 0:
             self._master_address = self._server_address
             # used for torch.distributed.init_process_group
-            self._master_port, self._master_sock = get_free_port(self._server_address)
+            self._master_port, self._master_sock = get_free_port(self._server_address, with_alive_sock=True)
             # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
-            self._dp_rpc_port, self._dp_rpc_sock = get_free_port(self._server_address)
-            self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address)
+            self._dp_rpc_port, self._dp_rpc_sock = get_free_port(self._server_address, with_alive_sock=True)
+            self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address, with_alive_sock=True)
         else:
             self._master_address = None
             self._master_port = None
@@ -147,6 +145,12 @@ class vLLMOmniHttpServer:
         """Get http server address and port."""
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
+
+    @property
+    def lora_as_adapter(self) -> bool:
+        return (
+            self.model_config.lora_rank > 0 or self.model_config.lora.get("rank", 0) > 0
+        ) and not self.model_config.lora.get("merge", False)
 
     async def collective_rpc(
         self,
@@ -329,6 +333,8 @@ class vLLMOmniHttpServer:
         # 3. launch server
         if self.node_rank == 0:
             self._master_sock.close()
+            self._dp_rpc_sock.close()
+            self._dp_master_sock.close()
             await self.run_server(server_args)
         else:
             # TODO: avoid connect before master_sock close
@@ -357,7 +363,7 @@ class vLLMOmniHttpServer:
         await omni_init_app_state(engine_client, None, app.state, args)
 
         self.engine = engine_client
-        self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
+        self._server_port, self._server_task = await run_uvicorn(app, args, self._server_address)
 
     async def run_headless(self, args: argparse.Namespace):
         """Run headless server in a separate thread."""
@@ -385,9 +391,7 @@ class vLLMOmniHttpServer:
 
         # Add lora request
         lora_request = None
-        if (
-            self.model_config.lora_rank > 0 or self.model_config.lora.get("rank", 0) > 0
-        ) and not self.model_config.lora.get("merge", False):
+        if self.lora_as_adapter:
             # Make sure we also check that the lora is already loaded in the engine
             lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
             if lora_loaded:
@@ -605,9 +609,6 @@ class vLLMOmniHttpServer:
             return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
-_rollout_worker_actor_cls = ray.remote(vLLMOmniServerAdapter)
-
-
 class vLLMOmniReplica(RolloutReplica):
     def __init__(
         self,
@@ -619,16 +620,6 @@ class vLLMOmniReplica(RolloutReplica):
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
         self.server_class = ray.remote(vLLMOmniHttpServer)
-
-    def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
-        """Get rollout worker actor class for colocated and standalone mode."""
-        worker_dict_cls = RayClassWithInitArgs(
-            cls=_rollout_worker_actor_cls,
-            config=self.config,
-            model_config=self.model_config,
-            device_mesh=None,
-        )
-        return worker_dict_cls
 
     async def launch_servers(self):
         """Launch http server in each node."""
@@ -669,7 +660,12 @@ class vLLMOmniReplica(RolloutReplica):
                     node_id=node_id,
                     soft=False,
                 ),
-                runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
+                runtime_env={
+                    "env_vars": {
+                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                        "RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1",
+                    }
+                },
                 name=name,
             ).remote(
                 config=self.config,

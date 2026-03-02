@@ -289,6 +289,8 @@ class DiffusionRolloutConfig(BaseConfig):
 
     name: Optional[str] = MISSING
     mode: str = "async"
+    nnodes: int = 0
+    n_gpus_per_node: int = 8
 
     do_sample: bool = True
     n: int = 1
