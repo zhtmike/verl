@@ -75,7 +75,7 @@ bash examples/flowgrpo_trainer/run_flowgrpo_fast.sh
 
 ### Async Reward
 
-For reward models that are expensive to run co-located with the policy, launch the reward server separately and point the trainer at it:
+For reward models that are expensive to evaluate (e.g., a VLM judge), the reward model can be allocated its own dedicated GPU resource pool and run asynchronously alongside the policy. This avoids blocking policy training on reward computation.
 
 ```bash
 bash examples/flowgrpo_trainer/run_flowgrpo_async_reward.sh
