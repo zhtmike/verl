@@ -18,7 +18,7 @@ Empirically, RL-tuned SD3.5-M with Flow-GRPO raises GenEval accuracy from 63% to
 - **Image Reward Models**: rewards are assigned by external reward models (e.g., GenEval, OCR, PickScore, aesthetic score) rather than rule-based verifiers.
 - **No Critic**: like GRPO for LLMs, no separate value network is trained; advantages are computed from group-relative rewards.
 
-## Key Differences: Flow-GRPO vs. GRPO
+## Key Differences: GRPO vs. Flow-GRPO
 
 | Dimension | GRPO (LLM) | Flow-GRPO (Diffusion) |
 |---|---|---|
@@ -56,6 +56,33 @@ Empirically, RL-tuned SD3.5-M with Flow-GRPO raises GenEval accuracy from 63% to
 - `actor_rollout_ref.actor.use_kl_loss`: Set to `True` to add a KL divergence term between the trained policy and the reference policy to the loss.
 
 - `actor_rollout_ref.actor.kl_loss_coef`: Coefficient for the KL loss term.
+
+## Data Preprocessing
+
+All training scripts expect the dataset in parquet format. The examples use an OCR dataset from the [Flow-GRPO repository](https://github.com/yifan123/flow_grpo/tree/main/dataset/ocr). The raw dataset consists of text files where each ground-truth answer is stored in the format `The image displays "xxx".`. Before running any training script, convert it to parquet format using the provided preprocessing script.
+
+### Step 1: Download the raw dataset
+
+Download the OCR dataset from the Flow-GRPO repository and place it at `~/dataset/ocr/` (or any path of your choice):
+
+```bash
+# Clone or download from https://github.com/yifan123/flow_grpo/tree/main/dataset/ocr
+# Place the dataset directory at ~/dataset/ocr/
+# Expected structure:
+#   ~/dataset/ocr/
+#       train/   (or train split files)
+#       test/    (or test split files)
+```
+
+### Step 2: Run the preprocessing script
+
+```bash
+python examples/data_preprocess/qwenimage_ocr.py \
+    --local_dataset_path ~/dataset/ocr \
+    --local_save_dir ~/data/ocr
+```
+
+The output parquet files are consumed directly by all training scripts via `data.train_files` and `data.val_files`.
 
 ## Variants
 
