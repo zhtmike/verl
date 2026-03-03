@@ -91,7 +91,7 @@ bash examples/flowgrpo_trainer/run_flowgrpo_full_ft.sh
 
 ## Reference Example
 
-Standard LoRA training with OCR reward (Qwen-Image, 4 GPUs):
+Standard LoRA training with OCR reward (Qwen-Image, 4 GPUs) with CFG and KL loss enabled:
 
 ```bash
 bash examples/flowgrpo_trainer/run_flowgrpo.sh
