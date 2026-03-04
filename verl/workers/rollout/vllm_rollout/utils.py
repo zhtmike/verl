@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import ctypes
-import gc
 import json
 import logging
 import os
@@ -23,14 +22,12 @@ from types import MethodType
 from typing import Any, Literal, get_args
 
 import torch
-import zmq
 from vllm_omni.diffusion.worker.gpu_worker import CustomPipelineWorkerExtension
 
-from verl.utils.device import get_torch_device, is_npu_available
+from verl.utils.device import is_npu_available
 from verl.utils.vllm import OmniTensorLoRARequest, TensorLoRARequest, VLLMHijack, VLLMOmniHijack
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
-from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import rebuild_ipc, rebuild_shared_memory
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -271,6 +268,8 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
         """Update the weights of the rollout model."""
         from vllm.platforms import current_platform
 
+        from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import BucketedWeightReceiver
+
         if current_platform.device_type == "npu" and self.device is None:
             self.device = torch.device(f"npu:{self.local_rank}")
 
@@ -278,59 +277,17 @@ class vLLMOmniColocateWorkerExtension(CustomPipelineWorkerExtension):
         if peft_config and base_sync_done:
             self.remove_lora(VLLM_LORA_INT_ID)
 
-        # build communication buffer
         assert self.device is not None
-        if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
-            self._zmq_ctx = zmq.Context()
-        socket = self._zmq_ctx.socket(zmq.REP)
-        socket.connect(self._get_zmq_handle())
-
-        comm_metadata = socket.recv_pyobj()
-        buffer, shm = None, None
-        if not use_shm:
-            handle = comm_metadata
-            buffer = rebuild_ipc(handle, self.device.index)
-            assert buffer.dtype == torch.uint8
-        else:
-            shm_name = comm_metadata["name"]
-            shm_size = comm_metadata["size"]
-            buffer, shm = rebuild_shared_memory(shm_name, shm_size, dtype=torch.uint8)
-        socket.send(b"")
-
-        # receive bucket and update weights
-        while True:
-            metadata = socket.recv_pyobj()
-            weights, tensor = [], None
-            for name, meta in metadata["bucket_meta"].items():
-                shape, dtype, offset = meta["shape"], meta["dtype"], meta["offset"]
-                size = dtype.itemsize * shape.numel()
-                # NOTE: we need to clone the tensor to release CUDA IPC memory
-                # but for shared memory, it's not necessary and if we do clone,
-                # it will cause extra memory copy overhead and slow down the process.
-                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
-                if not use_shm:
-                    tensor = tensor.clone()
-                else:
-                    tensor = tensor.to(self.device)
-                weights.append((name, tensor))
-            get_torch_device().synchronize()
-            socket.send(b"")
-            self._update_weights(weights, peft_config=peft_config, base_sync_done=base_sync_done)
-            del weights, tensor
-            if metadata["is_last"]:
-                break
-
-        # clean up
-        socket.close()
-        del buffer
-        gc.collect()
-        if shm is not None:
-            shm.close()
-            del shm
-        get_torch_device().synchronize()
-        gc.collect()
-        get_torch_device().ipc_collect()
-        get_torch_device().empty_cache()
+        receiver = BucketedWeightReceiver(
+            zmq_handle=self._get_zmq_handle(),
+            device=self.device,
+            use_shm=use_shm,
+        )
+        receiver.receive_weights(
+            on_bucket_received=lambda weights: self._update_weights(
+                weights, peft_config=peft_config, base_sync_done=base_sync_done
+            )
+        )
 
     def _update_weights(self, weights: list[tuple[str, torch.Tensor]], peft_config: dict, base_sync_done: bool):
         if peft_config and base_sync_done:

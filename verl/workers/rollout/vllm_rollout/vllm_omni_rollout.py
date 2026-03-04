@@ -31,7 +31,6 @@ import os
 from typing import Any, Optional
 
 import ray
-import zmq
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.utils.device import get_device_id, is_support_ipc
@@ -75,7 +74,6 @@ class vLLMOmniServerAdapter(ServerAdapter):
 
         self.sleep_level = 1
         self.device_uuid = get_device_uuid(get_device_id())
-        self.zmq_context = zmq.Context()
         self.zmq_handle = f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
 
         self.use_shm = not is_support_ipc()
