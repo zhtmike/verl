@@ -183,6 +183,7 @@ class DiffusersFSDPEngine(BaseEngine):
                 device_name, mesh_shape=(dp_size, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
             self.ulysses_parallel_group = self.ulysses_device_mesh["sp"].get_group()
+            raise NotImplementedError("Ulysses sequence parallel is not supported yet.")
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
