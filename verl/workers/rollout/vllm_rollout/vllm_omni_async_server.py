@@ -25,12 +25,11 @@ import torch
 import torchvision.transforms as T
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
+from vllm.entrypoints.openai.api_server import build_app
 from vllm.utils.argparse_utils import FlexibleArgumentParser
-from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.engine.arg_utils import AsyncOmniEngineArgs
 from vllm_omni.entrypoints import AsyncOmni
 from vllm_omni.entrypoints.openai.api_server import omni_init_app_state
-from vllm.entrypoints.openai.api_server import build_app
 from vllm_omni.inputs.data import OmniCustomPrompt, OmniDiffusionSamplingParams
 from vllm_omni.lora.request import LoRARequest
 from vllm_omni.outputs import OmniRequestOutput

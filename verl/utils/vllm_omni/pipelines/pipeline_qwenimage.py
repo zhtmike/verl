@@ -17,14 +17,13 @@ from typing import Any, Literal
 import torch
 from diffusers.models.autoencoders.autoencoder_kl_qwenimage import AutoencoderKLQwenImage
 from transformers import Qwen2_5_VLForConditionalGeneration
-from vllm_omni.diffusion.data import OmniDiffusionConfig
+from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
 from vllm_omni.diffusion.distributed.utils import get_local_device
 from vllm_omni.diffusion.model_loader.diffusers_loader import DiffusersPipelineLoader
 from vllm_omni.diffusion.models.qwen_image import QwenImagePipeline
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 
 from verl.utils.diffusers.schedulers import FlowMatchSDEDiscreteScheduler
-from vllm_omni.diffusion.data import DiffusionOutput
 from verl.utils.vllm_omni.pipelines.qwen_image.qwen_image_transformer import QwenImageTransformer2DModelFixed
 
 
