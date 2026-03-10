@@ -477,6 +477,7 @@ class vLLMOmniHttpServer:
             finish_reason = final_res.request_output.finish_reason or "stop"
         else:
             finish_reason = "stop"
+
         if finish_reason == "abort":
             stop_reason = "aborted"
         elif finish_reason in ("stop", "length"):
