@@ -21,7 +21,6 @@ from pprint import pprint
 from typing import Any, Callable, Optional
 
 import ray
-import torch
 import torchvision.transforms as T
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
@@ -452,21 +451,13 @@ class vLLMOmniHttpServer:
         negative_prompt_embeds = mm_output.get("negative_prompt_embeds")
         negative_prompt_embeds_mask = mm_output.get("negative_prompt_embeds_mask")
 
-        def _maybe_to_cpu(v):
-            """Move tensor to CPU so Ray can serialize it for CPU-only workers."""
-            if isinstance(v, torch.Tensor):
-                return v.detach().cpu()
-            return v
-
         extra_info = {
-            "all_latents": _maybe_to_cpu(all_latents[0]) if all_latents is not None else None,
-            "all_timesteps": _maybe_to_cpu(all_timesteps[0]) if all_timesteps is not None else None,
-            "prompt_embeds": _maybe_to_cpu(prompt_embeds[0]) if prompt_embeds is not None else None,
-            "prompt_embeds_mask": _maybe_to_cpu(prompt_embeds_mask[0]) if prompt_embeds_mask is not None else None,
-            "negative_prompt_embeds": _maybe_to_cpu(negative_prompt_embeds[0])
-            if negative_prompt_embeds is not None
-            else None,
-            "negative_prompt_embeds_mask": _maybe_to_cpu(negative_prompt_embeds_mask[0])
+            "all_latents": all_latents[0] if all_latents is not None else None,
+            "all_timesteps": all_timesteps[0] if all_timesteps is not None else None,
+            "prompt_embeds": prompt_embeds[0] if prompt_embeds is not None else None,
+            "prompt_embeds_mask": prompt_embeds_mask[0] if prompt_embeds_mask is not None else None,
+            "negative_prompt_embeds": negative_prompt_embeds[0] if negative_prompt_embeds is not None else None,
+            "negative_prompt_embeds_mask": negative_prompt_embeds_mask[0]
             if negative_prompt_embeds_mask is not None
             else None,
             "global_steps": self.global_steps,

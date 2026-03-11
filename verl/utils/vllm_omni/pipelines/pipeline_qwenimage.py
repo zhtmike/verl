@@ -27,6 +27,12 @@ from verl.utils.diffusers.schedulers import FlowMatchSDEDiscreteScheduler
 from verl.utils.vllm_omni.pipelines.qwen_image.qwen_image_transformer import QwenImageTransformer2DModelFixed
 
 
+def _maybe_to_cpu(v):
+    if isinstance(v, torch.Tensor):
+        return v.detach().cpu()
+    return v
+
+
 class QwenImagePipelineWithLogProb(QwenImagePipeline):
     def __init__(self, *, od_config: OmniDiffusionConfig, prefix: str = ""):
         super(QwenImagePipeline, self).__init__()
@@ -419,14 +425,14 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
             image = self.vae.decode(latents, return_dict=False)[0][:, :, 0]
 
         return DiffusionOutput(
-            output=image,
+            output=_maybe_to_cpu(image),
             custom_output={
-                "all_latents": all_latents,
-                "all_log_probs": all_log_probs,
-                "all_timesteps": all_timesteps,
-                "prompt_embeds": prompt_embeds,
-                "prompt_embeds_mask": prompt_embeds_mask,
-                "negative_prompt_embeds": negative_prompt_embeds,
-                "negative_prompt_embeds_mask": negative_prompt_embeds_mask,
+                "all_latents": _maybe_to_cpu(all_latents),
+                "all_log_probs": _maybe_to_cpu(all_log_probs),
+                "all_timesteps": _maybe_to_cpu(all_timesteps),
+                "prompt_embeds": _maybe_to_cpu(prompt_embeds),
+                "prompt_embeds_mask": _maybe_to_cpu(prompt_embeds_mask),
+                "negative_prompt_embeds": _maybe_to_cpu(negative_prompt_embeds),
+                "negative_prompt_embeds_mask": _maybe_to_cpu(negative_prompt_embeds_mask),
             },
         )
