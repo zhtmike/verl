@@ -1,4 +1,4 @@
-# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ def init_server():
             "calculate_log_probs": True,
             "engine_kwargs": {
                 "vllm_omni": {
-                    "custom_pipeline": "verl.utils.vllm_omni.pipelines.QwenImagePipelineWithLogProb",
+                    "custom_pipeline": "verl.models.diffusers_model.vllm_omni.QwenImagePipelineWithLogProb",
                 }
             },
         }

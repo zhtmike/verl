@@ -1,4 +1,4 @@
-# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,8 +23,8 @@ from vllm_omni.diffusion.model_loader.diffusers_loader import DiffusersPipelineL
 from vllm_omni.diffusion.models.qwen_image import QwenImagePipeline
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 
-from verl.utils.diffusers.schedulers import FlowMatchSDEDiscreteScheduler
-from verl.utils.vllm_omni.pipelines.qwen_image.qwen_image_transformer import QwenImageTransformer2DModelFixed
+from verl.models.diffusers_model.schedulers import FlowMatchSDEDiscreteScheduler
+from verl.models.diffusers_model.vllm_omni.qwen_image.qwen_image_transformer import QwenImageTransformer2DModelFixed
 
 
 def _maybe_to_cpu(v):
@@ -32,7 +32,8 @@ def _maybe_to_cpu(v):
         return v.detach().cpu()
     return v
 
-
+# Custom pipeline class for QwenImage that returns log probabilities during the diffusion process.
+# This is compatible with API of vllm-omni
 class QwenImagePipelineWithLogProb(QwenImagePipeline):
     def __init__(self, *, od_config: OmniDiffusionConfig, prefix: str = ""):
         super(QwenImagePipeline, self).__init__()
@@ -221,7 +222,6 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
                 generator=generator,
                 noise_level=cur_noise_level,
                 sde_type=sde_type,
-                logprobs=logprobs,
                 return_dict=False,
             )
 
@@ -232,7 +232,7 @@ class QwenImagePipelineWithLogProb(QwenImagePipeline):
 
         all_latents = torch.stack(all_latents, dim=1)
 
-        if all_log_probs and all_log_probs[0] is not None:
+        if all_log_probs[0] is not None:
             all_log_probs = torch.stack(all_log_probs, dim=1)
         else:
             all_log_probs = None

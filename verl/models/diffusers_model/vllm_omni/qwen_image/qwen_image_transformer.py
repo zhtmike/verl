@@ -1,4 +1,4 @@
-# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,8 @@ from vllm_omni.diffusion.models.qwen_image.qwen_image_transformer import (
 )
 
 
+# This class is need because there is bug in vllm-omni
+# TODO: Remove this class after the bug is fixed and vllm-omni is updated to the fixed version
 class QwenImageTransformer2DModelFixed(QwenImageTransformer2DModel):
     def __init__(
         self,
