@@ -98,10 +98,10 @@ do_sample: True
 n: 1
 
 # image height for diffusion model rollout
-image_height: 512
+height: 512
 
 # image width for diffusion model rollout
-image_width: 512
+width: 512
 
 # number of inference steps for diffusion model rollout
 num_inference_steps: 10

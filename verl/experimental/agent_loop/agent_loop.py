@@ -989,8 +989,8 @@ class DiffusionAgentLoopWorker:
         # TODO (mike): it is for Qwen-Image only, need to generalize later
         sampling_params = dict(
             logprobs=config.calculate_log_probs,
-            height=config.image_height,
-            width=config.image_width,
+            height=config.height,
+            width=config.width,
             true_cfg_scale=config.guidance_scale,
             max_sequence_length=config.max_model_len,
             sde_type=config.sde_type,
