@@ -986,6 +986,12 @@ class DiffusionAgentLoopWorker:
         """
         config = self.rollout_config
 
+        # Base SDE params from model config (model-specific)
+        extra = self.model_config.extra_configs
+        sde_type = extra.get("sde_type", "sde")
+        sde_window_size = extra.get("sde_window_size")
+        sde_window_range = extra.get("sde_window_range")
+
         # TODO (mike): it is for Qwen-Image only, need to generalize later
         sampling_params = dict(
             logprobs=config.calculate_log_probs,
@@ -993,9 +999,9 @@ class DiffusionAgentLoopWorker:
             width=config.width,
             true_cfg_scale=config.guidance_scale,
             max_sequence_length=config.max_model_len,
-            sde_type=config.sde_type,
-            sde_window_size=config.sde_window_size,
-            sde_window_range=config.sde_window_range,
+            sde_type=sde_type,
+            sde_window_size=sde_window_size,
+            sde_window_range=sde_window_range,
         )
 
         # override sampling params for validation
@@ -1005,7 +1011,7 @@ class DiffusionAgentLoopWorker:
             sampling_params["noise_level"] = config.val_kwargs.noise_level
         else:
             sampling_params["num_inference_steps"] = config.num_inference_steps
-            sampling_params["noise_level"] = config.noise_level
+            sampling_params["noise_level"] = extra.get("noise_level", 0.7)
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:

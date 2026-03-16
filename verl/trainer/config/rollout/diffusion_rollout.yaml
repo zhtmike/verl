@@ -106,20 +106,8 @@ width: 512
 # number of inference steps for diffusion model rollout
 num_inference_steps: 10
 
-# noise level for diffusion model rollout
-noise_level: 0.7
-
 # guidance scale for classifier-free guidance
 guidance_scale: 4.5
-
-# SDE type during rollout
-sde_type: "sde"
-
-# SDE window size
-sde_window_size: null
-
-# SDE window range
-sde_window_range: null
 
 # Extra inference engine arguments (vllm, sglang, trtllm), please refer vllm/sglang/trtllm official doc for detail
 engine_kwargs:
