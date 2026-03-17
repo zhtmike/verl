@@ -33,12 +33,6 @@ external_lib: null
 # whether to enable gradient checkpointing. Only valid when we use hf model definition
 enable_gradient_checkpointing: True
 
-# whether to enable activation offload. Only valid when we use hf model definition
-enable_activation_offload: False
-
-# whether to use remove padding. Only valid when we use hf model definition
-use_remove_padding: True
-
 # Set to positive value to enable LoRA (e.g., 32)
 lora_rank: 0
 
@@ -53,28 +47,6 @@ exclude_modules: null
 
 # Path to pre-trained LoRA adapter to load for continued training
 lora_adapter_path: null
-
-# whether to use liger. Only valid when we use hf model definition
-use_liger: False
-
-# whether to use fused kernels.
-use_fused_kernels: False
-
-# fused kernel options.
-fused_kernel_options:
-
-  # the implementation backend for fused kernels.
-  impl_backend: torch
-
-# TiledMLP configuration for memory-efficient MLP computation.
-# Reduces peak memory by processing MLP forward/backward in tiles.
-tiled_mlp:
-
-  # whether to enable TiledMLP
-  enabled: False
-
-  # number of shards to split the input. Higher values reduce peak memory but may slightly impact performance.
-  num_shards: 4
 
 # height (image/video)
 height: ${oc.select:actor_rollout_ref.rollout.height,512}

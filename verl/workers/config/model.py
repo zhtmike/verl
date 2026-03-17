@@ -253,14 +253,6 @@ class DiffusersModelConfig(BaseConfig):
 
     enable_gradient_checkpointing: bool = True
 
-    # HF/training params (for YAML compatibility; diffusion models may not use these)
-    enable_activation_offload: bool = False
-    use_remove_padding: bool = True
-    use_liger: bool = False
-    use_fused_kernels: bool = False
-    fused_kernel_options: dict = field(default_factory=dict)
-    tiled_mlp: dict = field(default_factory=lambda: {"enabled": False, "num_shards": 4})
-
     # lora related.
     lora_rank: int = 32
     lora_alpha: int = 64
