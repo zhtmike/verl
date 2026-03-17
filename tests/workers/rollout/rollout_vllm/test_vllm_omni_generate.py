@@ -31,7 +31,7 @@ from verl.utils.tokenizer import normalize_token_ids
 from verl.workers.rollout.replica import ImageOutput, RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_omni_async_server import vLLMOmniHttpServer
 
-MODEL_PATH = os.path.expanduser("~/models/tiny-random/Qwen-Image")
+MODEL_PATH = os.path.expanduser("tiny-random/Qwen-Image")
 
 
 # The pipeline (QwenImagePipelineWithLogProb._get_qwen_prompt_embeds) drops
