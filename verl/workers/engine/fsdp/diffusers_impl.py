@@ -189,12 +189,16 @@ class DiffusersFSDPEngine(BaseEngine):
                 device_name, mesh_shape=(dp_size, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
             self.ulysses_parallel_group = self.ulysses_device_mesh["sp"].get_group()
-            raise NotImplementedError("Ulysses sequence parallel is not supported yet.")
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        if self.use_ulysses_sp:
+            from verl.models.diffusers.monkey_patch import apply_monkey_patch_for_ulysses_sp
+
+            apply_monkey_patch_for_ulysses_sp()
+
     def _build_module(self):
-        from diffusers import AutoModel
+        from diffusers import AutoModel, ContextParallelConfig
 
         from verl.utils.torch_dtypes import PrecisionType
 
@@ -232,6 +236,13 @@ class DiffusersFSDPEngine(BaseEngine):
             use_fused_kernels = self.model_config.use_fused_kernels
             if use_fused_kernels:
                 module.fuse_qkv_projections()
+
+            if self.use_ulysses_sp:
+                sp_size = self.ulysses_sequence_parallel_size
+                from verl.models.diffusers.monkey_patch import fix_flattened_mesh
+
+                module.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size))
+                fix_flattened_mesh(module, self.ulysses_device_mesh["sp"])
 
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
@@ -599,11 +610,14 @@ class DiffusersFSDPEngine(BaseEngine):
         prompt_embeds_mask = micro_batch["prompt_embeds_mask"]
         negative_prompt_embeds = micro_batch["negative_prompt_embeds"]
         negative_prompt_embeds_mask = micro_batch["negative_prompt_embeds_mask"]
+        sp_size = self.ulysses_sequence_parallel_size if self.use_ulysses_sp else 1
 
         if prompt_embeds.is_nested:
             batch_size = prompt_embeds.size(0)
             seq_len_effective = prompt_embeds.offsets().diff()
-            max_seq_len = max(seq_len_effective)
+            max_seq_len = int(max(seq_len_effective))
+            if sp_size > 1:
+                max_seq_len = (max_seq_len + sp_size - 1) // sp_size * sp_size
             embed_dim = prompt_embeds.size(-1)
             prompt_embeds = torch.nested.to_padded_tensor(
                 prompt_embeds, padding=0, output_size=(batch_size, max_seq_len, embed_dim)
@@ -611,10 +625,21 @@ class DiffusersFSDPEngine(BaseEngine):
             prompt_embeds_mask = torch.nested.to_padded_tensor(
                 prompt_embeds_mask, padding=0, output_size=(batch_size, max_seq_len)
             )
+        elif sp_size > 1:
+            # Already a dense tensor; pad its seq-len dimension to a multiple of sp_size.
+            seq_len = prompt_embeds.size(1)
+            aligned_seq_len = (seq_len + sp_size - 1) // sp_size * sp_size
+            if aligned_seq_len > seq_len:
+                pad_len = aligned_seq_len - seq_len
+                prompt_embeds = torch.nn.functional.pad(prompt_embeds, (0, 0, 0, pad_len))
+                prompt_embeds_mask = torch.nn.functional.pad(prompt_embeds_mask, (0, pad_len))
+
         if isinstance(negative_prompt_embeds, torch.Tensor) and negative_prompt_embeds.is_nested:
             batch_size = negative_prompt_embeds.size(0)
             seq_len_effective = negative_prompt_embeds.offsets().diff()
-            max_seq_len = max(seq_len_effective)
+            max_seq_len = int(max(seq_len_effective))
+            if sp_size > 1:
+                max_seq_len = (max_seq_len + sp_size - 1) // sp_size * sp_size
             embed_dim = negative_prompt_embeds.size(-1)
             negative_prompt_embeds = torch.nested.to_padded_tensor(
                 negative_prompt_embeds, padding=0, output_size=(batch_size, max_seq_len, embed_dim)
@@ -622,6 +647,14 @@ class DiffusersFSDPEngine(BaseEngine):
             negative_prompt_embeds_mask = torch.nested.to_padded_tensor(
                 negative_prompt_embeds_mask, padding=0, output_size=(batch_size, max_seq_len)
             )
+        elif isinstance(negative_prompt_embeds, torch.Tensor) and sp_size > 1:
+            # Already a dense tensor; pad its seq-len dimension to a multiple of sp_size.
+            seq_len = negative_prompt_embeds.size(1)
+            aligned_seq_len = (seq_len + sp_size - 1) // sp_size * sp_size
+            if aligned_seq_len > seq_len:
+                pad_len = aligned_seq_len - seq_len
+                negative_prompt_embeds = torch.nn.functional.pad(negative_prompt_embeds, (0, 0, 0, pad_len))
+                negative_prompt_embeds_mask = torch.nn.functional.pad(negative_prompt_embeds_mask, (0, pad_len))
 
         height = tu.get_non_tensor_data(data=micro_batch, key="height", default=None)
         width = tu.get_non_tensor_data(data=micro_batch, key="width", default=None)
@@ -636,14 +669,6 @@ class DiffusersFSDPEngine(BaseEngine):
         hidden_states = latents[:, step]
         timestep = timesteps[:, step] / 1000.0
 
-        # TODO (mike): in diffusers main branch, it no longer accept txt_seq_lens
-        txt_seq_lens = torch.ones_like(prompt_embeds_mask).sum(dim=1).tolist()
-
-        if isinstance(negative_prompt_embeds_mask, torch.Tensor):
-            negative_txt_seq_lens = torch.ones_like(negative_prompt_embeds_mask).sum(dim=1).tolist()
-        else:
-            negative_txt_seq_lens = None
-
         model_inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
@@ -651,7 +676,6 @@ class DiffusersFSDPEngine(BaseEngine):
             "encoder_hidden_states_mask": prompt_embeds_mask,
             "encoder_hidden_states": prompt_embeds,
             "img_shapes": img_shapes,
-            "txt_seq_lens": txt_seq_lens,
             "return_dict": False,
         }
 
@@ -662,7 +686,6 @@ class DiffusersFSDPEngine(BaseEngine):
             "encoder_hidden_states_mask": negative_prompt_embeds_mask,
             "encoder_hidden_states": negative_prompt_embeds,
             "img_shapes": img_shapes,
-            "txt_seq_lens": negative_txt_seq_lens,
             "return_dict": False,
         }
 
