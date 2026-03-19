@@ -158,14 +158,6 @@ def _diffusers_ulysses_fwd(sp_size: int, dp_size: int):
     with torch.no_grad():
         output_sp = module_sp(**model_inputs)[0]
 
-    # Diffusers SP hooks shard hidden_states across SP ranks and do not gather
-    # them back automatically, so we all-gather here if needed.
-    if output_sp.shape[1] != latent_seq_len:
-        assert output_sp.shape[1] == latent_seq_len // sp_size, f"Unexpected SP output shape: {output_sp.shape}"
-        gather_list = [torch.zeros_like(output_sp) for _ in range(sp_size)]
-        torch.distributed.all_gather(gather_list, output_sp.contiguous(), group=sp_group)
-        output_sp = torch.cat(gather_list, dim=1)
-
     # 2. plain (non-SP) forward
     set_ulysses_sequence_parallel_group(None)
     module_no_sp.eval()
@@ -275,13 +267,6 @@ def _diffusers_ulysses_fwd_bwd(sp_size: int, dp_size: int):
     set_ulysses_sequence_parallel_group(sp_group)
     module_sp.train()
     output_sp = module_sp(**model_inputs)[0]
-
-    if output_sp.shape[1] != latent_seq_len:
-        assert output_sp.shape[1] == latent_seq_len // sp_size
-        gather_list = [torch.zeros_like(output_sp) for _ in range(sp_size)]
-        torch.distributed.all_gather(gather_list, output_sp.contiguous(), group=sp_group)
-        output_sp = torch.cat(gather_list, dim=1)
-
     loss_sp = output_sp.float().mean()
     loss_sp.backward()
 
@@ -460,13 +445,6 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int):
     set_ulysses_sequence_parallel_group(sp_group)
     module_sp.train()
     output_sp = module_sp(**model_inputs)[0]
-
-    if output_sp.shape[1] != latent_seq_len:
-        assert output_sp.shape[1] == latent_seq_len // sp_size
-        gather_list = [torch.zeros_like(output_sp) for _ in range(sp_size)]
-        torch.distributed.all_gather(gather_list, output_sp.contiguous(), group=sp_group)
-        output_sp = torch.cat(gather_list, dim=1)
-
     loss_sp = output_sp.float().mean()
     loss_sp.backward()
 
