@@ -626,7 +626,6 @@ class DiffusersFSDPEngine(BaseEngine):
                 prompt_embeds_mask, padding=0, output_size=(batch_size, max_seq_len)
             )
         elif sp_size > 1:
-            # Already a dense tensor; pad its seq-len dimension to a multiple of sp_size.
             seq_len = prompt_embeds.size(1)
             aligned_seq_len = (seq_len + sp_size - 1) // sp_size * sp_size
             if aligned_seq_len > seq_len:
@@ -648,7 +647,6 @@ class DiffusersFSDPEngine(BaseEngine):
                 negative_prompt_embeds_mask, padding=0, output_size=(batch_size, max_seq_len)
             )
         elif isinstance(negative_prompt_embeds, torch.Tensor) and sp_size > 1:
-            # Already a dense tensor; pad its seq-len dimension to a multiple of sp_size.
             seq_len = negative_prompt_embeds.size(1)
             aligned_seq_len = (seq_len + sp_size - 1) // sp_size * sp_size
             if aligned_seq_len > seq_len:
