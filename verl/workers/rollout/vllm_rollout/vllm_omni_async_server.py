@@ -30,7 +30,7 @@ from vllm_omni.outputs import OmniRequestOutput
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.tokenizer import normalize_token_ids
 from verl.workers.config import DiffusersModelConfig, DiffusionRolloutConfig
-from verl.workers.rollout.diffusion_sampling_utils import build_diffusion_backend_sampling_params
+from verl.workers.rollout.diffusion_sampling_utils import build_omni_diffusion_sampling_kwargs
 from verl.workers.rollout.replica import ImageOutput
 from verl.workers.rollout.utils import run_uvicorn
 from verl.workers.rollout.vllm_rollout.utils import (
@@ -42,21 +42,6 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer, 
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
-
-_OMNI_DIRECT_DIFFUSION_PARAMS = {
-    "height",
-    "width",
-    "num_inference_steps",
-    "seed",
-    "true_cfg_scale",
-    "max_sequence_length",
-}
-
-_OMNI_DIFFUSION_RENAME_MAP = {
-    "guidance_scale": "true_cfg_scale",
-    "max_model_len": "max_sequence_length",
-}
-
 
 class vLLMOmniHttpServer(vLLMHttpServer):
     """vLLM-Omni http server in single node, this is equivalent to launch server with command line:
@@ -172,13 +157,13 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         if multi_modal_data:
             custom_prompt["extra_args"] = {"multi_modal_data": multi_modal_data}
 
-        # Translate generic diffusion request fields into Omni-specific names here,
-        # so model/backend details do not leak into the generic agent loop.
-        sampling_kwargs = build_diffusion_backend_sampling_params(
+        # Keep generic rollout request fields distinct from Omni-native controls.
+        # Omni-specific fields such as true_cfg_scale and max_sequence_length are
+        # read explicitly from backend-owned engine kwargs rather than inferred by aliasing.
+        sampling_kwargs = build_omni_diffusion_sampling_kwargs(
             sampling_params,
             model_extra_configs=self.model_config.extra_configs,
-            direct_param_names=_OMNI_DIRECT_DIFFUSION_PARAMS,
-            rename_map=_OMNI_DIFFUSION_RENAME_MAP,
+            omni_engine_kwargs=self.config.engine_kwargs.get("vllm_omni", {}),
         )
         if lora_request is not None:
             sampling_kwargs["lora_request"] = lora_request

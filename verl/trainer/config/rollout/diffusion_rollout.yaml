@@ -34,7 +34,16 @@ guidance_scale: 4.5
 engine_kwargs:
 
   # vllm-omni engine config
-  vllm_omni: {}
+  vllm_omni:
+
+    # custom pipeline class for vllm_omni diffusion serving
+    custom_pipeline: null
+
+    # backend-specific CFG scale used by Omni/Qwen true CFG
+    true_cfg_scale: null
+
+    # backend-specific prompt embedding truncation budget
+    max_sequence_length: null
 
 # Sampling parameters used during validation.
 val_kwargs:
