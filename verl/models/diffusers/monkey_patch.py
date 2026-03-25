@@ -102,57 +102,9 @@ def _patch_sp_native_attention_backward():
     logger.info("Patched diffusers._native_attention_backward_op for [B,S,H,D] grad_out shape mismatch.")
 
 
-def _patch_sp_native_attention_mask():
-    """Reshape the attention mask from 2D [batch, seq] to 4D [batch, 1, 1, seq]
-    inside _native_attention_forward_op before passing to SDPA."""
-    try:
-        import diffusers.models.attention_dispatch as ad
-    except ImportError:
-        return
-
-    if not hasattr(ad, "_native_attention_forward_op"):
-        return
-
-    original_fn = ad._native_attention_forward_op
-
-    def patched_fn(
-        ctx,
-        query,
-        key,
-        value,
-        attn_mask=None,
-        dropout_p=0.0,
-        is_causal=False,
-        scale=None,
-        enable_gqa=False,
-        return_lse=False,
-        **kwargs,
-    ):
-        if attn_mask is not None and attn_mask.dim() == 2:
-            # [batch, seq] -> [batch, 1, 1, seq]  (broadcast over heads & seq_q)
-            attn_mask = attn_mask.unsqueeze(1).unsqueeze(2)
-        return original_fn(
-            ctx,
-            query,
-            key,
-            value,
-            attn_mask=attn_mask,
-            dropout_p=dropout_p,
-            is_causal=is_causal,
-            scale=scale,
-            enable_gqa=enable_gqa,
-            return_lse=return_lse,
-            **kwargs,
-        )
-
-    ad._native_attention_forward_op = patched_fn
-    logger.info("Patched diffusers._native_attention_forward_op for 2D->4D attn_mask reshape.")
-
-
 def apply_monkey_patch_for_ulysses_sp():
     """Apply all monkey patches required for Ulysses Sequence Parallel training."""
     logger.warning("Applying diffusers monkey-patches for Ulysses Sequence Parallel. ")
 
     _patch_context_parallel_config_mesh_shape()
-    _patch_sp_native_attention_mask()
     _patch_sp_native_attention_backward()
