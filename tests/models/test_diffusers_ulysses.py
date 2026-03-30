@@ -28,7 +28,7 @@ from torch.distributed import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 
-from verl.models.diffusers.monkey_patch import apply_monkey_patch_for_ulysses_sp, fix_flattened_mesh
+from verl.models.diffusers.monkey_patch import apply_monkey_patch_for_ulysses_sp
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.ulysses import set_ulysses_sequence_parallel_group
@@ -99,10 +99,10 @@ def _diffusers_ulysses_fwd(sp_size: int, dp_size: int):
 
     ulysses_device_mesh = init_device_mesh(
         device_type=device,
-        mesh_shape=(dp_size, sp_size),
-        mesh_dim_names=("dp", "sp"),
+        mesh_shape=(dp_size, 1, sp_size),
+        mesh_dim_names=("dp", "ring", "ulysses"),
     )
-    sp_group = ulysses_device_mesh["sp"].get_group()
+    sp_group = ulysses_device_mesh["ulysses"].get_group()
 
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
@@ -111,8 +111,7 @@ def _diffusers_ulysses_fwd(sp_size: int, dp_size: int):
     apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
-    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size))
-    fix_flattened_mesh(module_sp, ulysses_device_mesh["sp"])
+    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 
@@ -210,10 +209,10 @@ def _diffusers_ulysses_fwd_bwd(sp_size: int, dp_size: int):
 
     ulysses_device_mesh = init_device_mesh(
         device_type=device,
-        mesh_shape=(dp_size, sp_size),
-        mesh_dim_names=("dp", "sp"),
+        mesh_shape=(dp_size, 1, sp_size),
+        mesh_dim_names=("dp", "ring", "ulysses"),
     )
-    sp_group = ulysses_device_mesh["sp"].get_group()
+    sp_group = ulysses_device_mesh["ulysses"].get_group()
 
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
@@ -222,8 +221,7 @@ def _diffusers_ulysses_fwd_bwd(sp_size: int, dp_size: int):
     apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
-    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size))
-    fix_flattened_mesh(module_sp, ulysses_device_mesh["sp"])
+    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 
@@ -362,10 +360,10 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int):
 
     ulysses_device_mesh = init_device_mesh(
         device_type=device,
-        mesh_shape=(dp_size, sp_size),
-        mesh_dim_names=("dp", "sp"),
+        mesh_shape=(dp_size, 1, sp_size),
+        mesh_dim_names=("dp", "ring", "ulysses"),
     )
-    sp_group = ulysses_device_mesh["sp"].get_group()
+    sp_group = ulysses_device_mesh["ulysses"].get_group()
 
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
@@ -374,8 +372,7 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int):
     apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
-    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size))
-    fix_flattened_mesh(module_sp, ulysses_device_mesh["sp"])
+    module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 

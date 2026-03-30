@@ -19,37 +19,6 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-def _patch_context_parallel_config_mesh_shape():
-    """Patch ContextParallelConfig.mesh_shape so the mesh covers all ranks with shape
-    (world_size // ulysses_degree, ulysses_degree) instead of just sp_size ranks."""
-    try:
-        from diffusers import ContextParallelConfig
-    except ImportError:
-        return
-
-    if not hasattr(ContextParallelConfig, "mesh_shape"):
-        return
-
-    ContextParallelConfig.mesh_shape = property(
-        lambda self: (torch.distributed.get_world_size() // self.ulysses_degree, self.ulysses_degree)
-    )
-    logger.info("Patched diffusers.ContextParallelConfig.mesh_shape for multi-rank SP compatibility.")
-
-
-def fix_flattened_mesh(module, sp_sub_mesh):
-    """Replace _flattened_mesh in every context-parallel hook with the SP sub-mesh.
-    Must be called after module.enable_parallelism()."""
-    seen_configs: set = set()
-    for submodule in module.modules():
-        if hasattr(submodule, "_diffusers_hook"):
-            for hook in submodule._diffusers_hook.hooks.values():
-                if hasattr(hook, "parallel_config") and hook.parallel_config is not None:
-                    config_id = id(hook.parallel_config)
-                    if config_id not in seen_configs:
-                        hook.parallel_config._flattened_mesh = sp_sub_mesh
-                        seen_configs.add(config_id)
-
-
 def _patch_sp_native_attention_backward():
     """Fix _native_attention_backward_op shape mismatch: pass grad_out directly
     (not permuted) since out is already in [B, S, H, D] format after the permute."""
@@ -106,5 +75,4 @@ def apply_monkey_patch_for_ulysses_sp():
     """Apply all monkey patches required for Ulysses Sequence Parallel training."""
     logger.warning("Applying diffusers monkey-patches for Ulysses Sequence Parallel. ")
 
-    _patch_context_parallel_config_mesh_shape()
     _patch_sp_native_attention_backward()

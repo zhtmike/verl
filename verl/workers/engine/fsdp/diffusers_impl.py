@@ -140,7 +140,7 @@ class DiffusersFSDPEngine(BaseEngine):
 
     def is_mp_src_rank_with_outputs(self):
         if self.ulysses_device_mesh is not None:
-            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+            is_collect = self.ulysses_device_mesh["ulysses"].get_local_rank() == 0
         else:
             is_collect = True
         return is_collect
@@ -186,9 +186,11 @@ class DiffusersFSDPEngine(BaseEngine):
         dp_size = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(
-                device_name, mesh_shape=(dp_size, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
+                device_name,
+                mesh_shape=(dp_size, 1, self.ulysses_sequence_parallel_size),
+                mesh_dim_names=["dp", "ring", "ulysses"],
             )
-            self.ulysses_parallel_group = self.ulysses_device_mesh["sp"].get_group()
+            self.ulysses_parallel_group = self.ulysses_device_mesh["ulysses"].get_group()
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
@@ -239,10 +241,9 @@ class DiffusersFSDPEngine(BaseEngine):
 
             if self.use_ulysses_sp:
                 sp_size = self.ulysses_sequence_parallel_size
-                from verl.models.diffusers.monkey_patch import fix_flattened_mesh
-
-                module.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size))
-                fix_flattened_mesh(module, self.ulysses_device_mesh["sp"])
+                module.enable_parallelism(
+                    config=ContextParallelConfig(ulysses_degree=sp_size, mesh=self.ulysses_device_mesh)
+                )
 
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
