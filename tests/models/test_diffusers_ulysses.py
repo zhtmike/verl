@@ -28,7 +28,6 @@ from torch.distributed import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 
-from verl.models.diffusers.monkey_patch import apply_monkey_patch_for_ulysses_sp
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.ulysses import set_ulysses_sequence_parallel_group
@@ -107,8 +106,6 @@ def _diffusers_ulysses_fwd(sp_size: int, dp_size: int):
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
     encoder_hidden_dim = cfg.get("cross_attention_dim", cfg.get("encoder_hidden_size", 32))
-
-    apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
@@ -217,8 +214,6 @@ def _diffusers_ulysses_fwd_bwd(sp_size: int, dp_size: int):
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
     encoder_hidden_dim = cfg.get("cross_attention_dim", cfg.get("encoder_hidden_size", 32))
-
-    apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
@@ -368,8 +363,6 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int):
     cfg = _load_config_for_sp(sp_size)
     latent_dim = cfg.get("in_channels", 64)
     encoder_hidden_dim = cfg.get("cross_attention_dim", cfg.get("encoder_hidden_size", 32))
-
-    apply_monkey_patch_for_ulysses_sp()
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))

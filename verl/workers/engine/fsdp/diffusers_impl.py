@@ -197,11 +197,6 @@ class DiffusersFSDPEngine(BaseEngine):
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
-        if self.use_ulysses_sp:
-            from verl.models.diffusers.monkey_patch import apply_monkey_patch_for_ulysses_sp
-
-            apply_monkey_patch_for_ulysses_sp()
-
     def _build_module(self):
         from diffusers import AutoModel, ContextParallelConfig
 
