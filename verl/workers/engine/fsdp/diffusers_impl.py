@@ -185,6 +185,9 @@ class DiffusersFSDPEngine(BaseEngine):
         self.ulysses_sequence_parallel_size = self.engine_config.ulysses_sequence_parallel_size
         dp_size = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
+            # diffusers' ContextParallelConfig.setup() unconditionally accesses
+            # self._mesh["ring", "ulysses"], so the mesh must have both named
+            # dimensions even though ring attention is not used (ring_degree=1).
             self.ulysses_device_mesh = init_device_mesh(
                 device_name,
                 mesh_shape=(dp_size, 1, self.ulysses_sequence_parallel_size),
