@@ -185,6 +185,13 @@ class DiffusersFSDPEngine(BaseEngine):
         self.ulysses_sequence_parallel_size = self.engine_config.ulysses_sequence_parallel_size
         dp_size = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
+            import diffusers
+            from packaging import version
+
+            if version.parse(diffusers.__version__) < version.parse("0.38.0"):
+                raise RuntimeError(
+                    f"Ulysses sequence parallelism requires diffusers >= 0.38.0 (found {diffusers.__version__}). "
+                )
             # diffusers' ContextParallelConfig.setup() unconditionally accesses
             # self._mesh["ring", "ulysses"], so the mesh must have both named
             # dimensions even though ring attention is not used (ring_degree=1).
