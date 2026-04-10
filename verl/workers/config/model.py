@@ -310,9 +310,6 @@ class DiffusionModelConfig(BaseConfig):
         # construct tokenizer
         if self.load_tokenizer:
             self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
-            # Fast tokenizer for diffusion: DiffusionSingleTurnAgentLoop applies chat template on the asyncio
-            # thread (not run_in_executor) so Rust-backed tokenizers avoid RuntimeError: Already borrowed
-            # with recent transformers when combined with thread-pool tokenization.
             self.tokenizer = hf_tokenizer(
                 self.local_tokenizer_path, trust_remote_code=self.trust_remote_code, use_fast=True
             )
