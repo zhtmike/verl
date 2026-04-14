@@ -80,7 +80,7 @@ class DiffusionModelConfig(BaseConfig):
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
 
-    mtp: MtpConfig = field(default_factory=MtpConfig)
+    mtp: Optional[MtpConfig] = field(default_factory=MtpConfig)
 
     height: int = 512
     width: int = 512
@@ -88,7 +88,7 @@ class DiffusionModelConfig(BaseConfig):
     true_cfg_scale: float = 4.0
     max_sequence_length: int = 512
     guidance_scale: Optional[float] = None
-    algo: DiffusionRolloutAlgoConfig = field(default_factory=DiffusionRolloutAlgoConfig)
+    algo: Optional[DiffusionRolloutAlgoConfig] = field(default_factory=DiffusionRolloutAlgoConfig)
 
     def __post_init__(self):
         import_external_libs(self.external_lib)
@@ -106,7 +106,9 @@ class DiffusionModelConfig(BaseConfig):
         # construct tokenizer
         if self.load_tokenizer:
             self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
-            self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
+            self.tokenizer = hf_tokenizer(
+                self.local_tokenizer_path, trust_remote_code=self.trust_remote_code, use_fast=True
+            )
             if os.path.exists(os.path.join(self.local_path, "processor")):
                 self.processor = hf_processor(
                     os.path.join(self.local_path, "processor"), trust_remote_code=self.trust_remote_code

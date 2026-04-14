@@ -85,6 +85,15 @@ disable_log_stats: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
+# Multi-turn interaction config for tools or chat.
+multi_turn:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.MultiTurnConfig
+
+  # set to True for multi-turn tool interaction tasks;
+  enable: False
+
 # Extra inference engine arguments (vllm-omni), please refer vllm/sglang/trtllm official doc for detail
 engine_kwargs:
 

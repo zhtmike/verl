@@ -20,7 +20,7 @@ from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
 
 from ..model import MtpConfig
-from ..rollout import AgentLoopConfig, CheckpointEngineConfig, PrometheusConfig, SamplingConfig
+from ..rollout import AgentLoopConfig, CheckpointEngineConfig, MultiTurnConfig, PrometheusConfig, SamplingConfig
 
 __all__ = [
     "DiffusionRolloutAlgoConfig",
@@ -86,6 +86,8 @@ class DiffusionRolloutConfig(BaseConfig):
 
     agent: AgentLoopConfig = field(default_factory=AgentLoopConfig)
 
+    multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
+
     # Use Prometheus to collect and monitor rollout statistics
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
@@ -108,7 +110,7 @@ class DiffusionRolloutConfig(BaseConfig):
 
     enable_sleep_mode: bool = True
 
-    mtp: MtpConfig = field(default_factory=MtpConfig)
+    mtp: Optional[MtpConfig] = field(default_factory=MtpConfig)
 
     height: int = 512
 
@@ -124,7 +126,7 @@ class DiffusionRolloutConfig(BaseConfig):
 
     profiler: Optional[ProfilerConfig] = None
 
-    algo: DiffusionRolloutAlgoConfig = field(default_factory=DiffusionRolloutAlgoConfig)
+    algo: Optional[DiffusionRolloutAlgoConfig] = field(default_factory=DiffusionRolloutAlgoConfig)
 
     def __post_init__(self):
         """Validate the diffusion rollout config"""

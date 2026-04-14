@@ -68,7 +68,6 @@ def test_compute_policy_loss_flow_grpo() -> None:
             old_log_prob=rollout_log_probs[:, step],
             log_prob=current_log_probs[:, step],
             advantages=advantages[:, step],
-            loss_agg_mode="token-mean",
             config=actor_config,
         )
 

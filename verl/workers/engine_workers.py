@@ -563,6 +563,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 actor_training_config.engine_config.micro_batch_size_per_gpu = (
                     self.config.actor.ppo_micro_batch_size_per_gpu
                 )
+                actor_training_config.engine_config.infer_micro_batch_size_per_gpu = self.config.rollout.get(
+                    "log_prob_micro_batch_size_per_gpu", None
+                )
             else:
                 actor_use_dynamic_bsz = self.config.actor.get("use_dynamic_bsz", False)
                 rollout_log_prob_use_dynamic_bsz = self.config.rollout.get("log_prob_use_dynamic_bsz", False)

@@ -123,7 +123,6 @@ def create_data_samples(num_device: int, model_config: DiffusionModelConfig) -> 
 
     batch = TensorDict(
         {
-            "response_mask": torch.ones((batch_size, num_diffusion_steps)),
             "old_log_probs": torch.randn((batch_size, num_diffusion_steps)),
             "advantages": torch.randn((batch_size, num_diffusion_steps)),
             "all_latents": torch.randn((batch_size, num_diffusion_steps + 1, latent_height * latent_width, latent_dim)),

@@ -581,7 +581,6 @@ class DiffusersFSDPEngine(BaseEngine):
                 {
                     "old_log_probs": micro_batch["old_log_probs"][:, step],
                     "advantages": micro_batch["advantages"][:, step],
-                    "response_mask": micro_batch["response_mask"][:, step],
                 },
             )
             tu.assign_non_tensor(

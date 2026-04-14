@@ -57,6 +57,7 @@ class DiffusionActorConfig(BaseConfig):
     ppo_mini_batch_size: int = 256
     ppo_micro_batch_size_per_gpu: Optional[int] = None
     diffusion_loss: DiffusionLossConfig = field(default_factory=DiffusionLossConfig)
+    loss_scale_factor: Optional[int] = None
     use_kl_loss: bool = False
     kl_loss_coef: float = 0.001
     ppo_epochs: int = 1
@@ -66,7 +67,7 @@ class DiffusionActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
     rollout_n: int = MISSING  # must be override by sampling config
-    model_config: DiffusionModelConfig = field(default_factory=DiffusionModelConfig)
+    model_config: DiffusionModelConfig = field(default_factory=BaseConfig)
     log_prob_micro_batch_size_per_gpu: Optional[int] = None
 
     # Store global batch info for loss aggregation:
