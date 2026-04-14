@@ -48,6 +48,13 @@ exclude_modules: null
 # Path to pre-trained LoRA adapter to load for continued training
 lora_adapter_path: null
 
+# MTP
+mtp: 
+
+  _target_: verl.workers.config.MtpConfig
+
+  enable: False
+
 # image/video height
 height: ${oc.select:actor_rollout_ref.rollout.height,512}
 
@@ -66,6 +73,17 @@ max_sequence_length: ${oc.select:actor_rollout_ref.rollout.max_sequence_length,5
 # Distilled guidance scale
 guidance_scale: ${oc.select:actor_rollout_ref.rollout.guidance_scale,null}
 
-# Rollout Algorithm configuration,
-algo: ${oc.select:actor_rollout_ref.rollout.algo,{}}
+# Rollout Algorithm configuration
+algo:
 
+  # Base noise level for SDE sampling
+  noise_level: ${oc.select:actor_rollout_ref.rollout.algo.noise_level,1.0}
+
+  # SDE type for diffusion sampling
+  sde_type: ${oc.select:actor_rollout_ref.rollout.algo.sde_type,sde}
+
+  # SDE window size
+  sde_window_size: ${oc.select:actor_rollout_ref.rollout.algo.sde_window_size,null}
+
+  # SDE window range
+  sde_window_range: ${oc.select:actor_rollout_ref.rollout.algo.sde_window_range,[0,5]}

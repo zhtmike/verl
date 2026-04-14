@@ -17,8 +17,10 @@ from typing import Optional
 from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
+from verl.utils.profiler import ProfilerConfig
 
-from ..rollout import AgentLoopConfig, CheckpointEngineConfig, SamplingConfig
+from ..model import MtpConfig
+from ..rollout import AgentLoopConfig, CheckpointEngineConfig, PrometheusConfig, SamplingConfig
 
 __all__ = [
     "DiffusionRolloutAlgoConfig",
@@ -29,11 +31,11 @@ __all__ = [
 
 @dataclass
 class DiffusionRolloutAlgoConfig(BaseConfig):
-    # for SDE-based diffusion models
+    # for SDE-based diffusion process
     noise_level: float = 1.0
     sde_type: str = "sde"
     sde_window_size: Optional[int] = None
-    sde_window_range: list[int] = [0, 5]
+    sde_window_range: list[int] = field(default_factory=lambda: [0, 5])
 
 
 @dataclass
@@ -45,11 +47,7 @@ class DiffusionSamplingConfig(SamplingConfig):
 
 @dataclass
 class DiffusionRolloutConfig(BaseConfig):
-    _mutable_fields = {
-        "max_model_len",
-        "load_format",
-        "engine_kwargs",
-    }
+    _mutable_fields = {"max_model_len", "load_format", "engine_kwargs", "prompt_length", "expert_parallel_size"}
 
     name: Optional[str] = MISSING
     mode: str = "async"
@@ -57,14 +55,21 @@ class DiffusionRolloutConfig(BaseConfig):
     n_gpus_per_node: int = 8
     n: int = 1
 
+    prompt_length: int = 512
+
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5
     enforce_eager: bool = False
+    cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
     data_parallel_size: int = 1
+    expert_parallel_size: int = 1
     tensor_model_parallel_size: int = 2
     pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
+    logprobs_mode: Optional[str] = "processed_logprobs"
+    scheduling_policy: Optional[str] = "fcfs"
+
     val_kwargs: DiffusionSamplingConfig = field(default_factory=DiffusionSamplingConfig)
 
     max_model_len: Optional[int] = None
@@ -81,6 +86,9 @@ class DiffusionRolloutConfig(BaseConfig):
 
     agent: AgentLoopConfig = field(default_factory=AgentLoopConfig)
 
+    # Use Prometheus to collect and monitor rollout statistics
+    prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
+
     # Checkpoint Engine config for update weights from trainer to rollout
     checkpoint_engine: CheckpointEngineConfig = field(default_factory=CheckpointEngineConfig)
 
@@ -94,7 +102,13 @@ class DiffusionRolloutConfig(BaseConfig):
 
     skip_tokenizer_init: bool = True
 
+    quantization: Optional[str] = None
+
+    enable_rollout_routing_replay: bool = False
+
     enable_sleep_mode: bool = True
+
+    mtp: MtpConfig = field(default_factory=MtpConfig)
 
     height: int = 512
 
@@ -107,6 +121,8 @@ class DiffusionRolloutConfig(BaseConfig):
     max_sequence_length: int = 512
 
     guidance_scale: Optional[float] = None
+
+    profiler: Optional[ProfilerConfig] = None
 
     algo: DiffusionRolloutAlgoConfig = field(default_factory=DiffusionRolloutAlgoConfig)
 

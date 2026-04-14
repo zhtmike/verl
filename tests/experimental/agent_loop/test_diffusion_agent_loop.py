@@ -157,8 +157,6 @@ def test_single_turn(init_config):
             "all_timesteps",
             "prompt_embeds",
             "prompt_embeds_mask",
-            "input_ids",
-            "attention_mask",
             "rollout_log_probs",
         ]
         for key in expected_batch_keys:

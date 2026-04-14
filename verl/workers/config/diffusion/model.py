@@ -23,6 +23,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.import_utils import import_external_libs
 
+from ..model import MtpConfig
 from .rollout import DiffusionRolloutAlgoConfig
 
 __all__ = ["DiffusionModelConfig"]
@@ -78,6 +79,8 @@ class DiffusionModelConfig(BaseConfig):
 
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
+
+    mtp: MtpConfig = field(default_factory=MtpConfig)
 
     height: int = 512
     width: int = 512
