@@ -24,6 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 
+from verl.base_config import BaseConfig
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopMetrics,
     AsyncLLMServerManager,
@@ -36,6 +37,10 @@ from verl.protocol import DataProto
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.rl_dataset import get_dataset_class
 from verl.workers.config import DiffusionModelConfig, DiffusionRolloutConfig
+
+
+def _config_to_sampling_dict(config: BaseConfig) -> dict:
+    return {k: v for k, v in config.items() if not k.startswith("_")}
 
 
 class DiffusionAgentLoopOutput(BaseModel):
@@ -151,12 +156,12 @@ class DiffusionAgentLoopWorker:
             "width": config.width,
             "num_inference_steps": config.num_inference_steps,
             "logprobs": config.calculate_log_probs,
-            **dict(config.algo),
+            **_config_to_sampling_dict(config.algo),
         }
 
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
-            sampling_params.update(config.val_kwargs.algo)
+            sampling_params.update(_config_to_sampling_dict(config.val_kwargs.algo))
             sampling_params["num_inference_steps"] = config.val_kwargs.num_inference_steps
             sampling_params["seed"] = config.val_kwargs.seed
 
