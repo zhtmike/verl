@@ -92,7 +92,6 @@ def init_config() -> DictConfig:
         config.reward.reward_manager.name = "image"
         config.trainer.n_gpus_per_node = 4
 
-        config.data.apply_chat_template_kwargs = dict(max_length=max_length, padding=True, truncation=True)
         config.data.max_prompt_length = max_length
         config.actor_rollout_ref.rollout.max_model_len = max_length
 
