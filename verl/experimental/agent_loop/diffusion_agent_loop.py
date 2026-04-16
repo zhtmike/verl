@@ -40,7 +40,9 @@ from verl.utils.profiler import simple_timer
 from verl.workers.config import DiffusionModelConfig, DiffusionRolloutConfig
 
 
-def _config_to_sampling_dict(config: BaseConfig) -> dict:
+def _config_to_sampling_dict(config: Optional[BaseConfig]) -> dict:
+    if config is None:
+        return {}
     return {k: v for k, v in config.items() if not k.startswith("_")}
 
 
