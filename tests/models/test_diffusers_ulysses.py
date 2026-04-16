@@ -109,10 +109,12 @@ def _diffusers_ulysses_fwd(sp_size: int, dp_size: int):
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
+    module_sp.set_attention_backend("flash")
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 
     module_no_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
+    module_no_sp.set_attention_backend("flash")
     module_no_sp = module_no_sp.to(device=device, dtype=torch.bfloat16)
     module_no_sp.load_state_dict(
         {k: v.detach().clone() for k, v in module_sp.state_dict().items()},
@@ -217,10 +219,12 @@ def _diffusers_ulysses_fwd_bwd(sp_size: int, dp_size: int):
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
+    module_sp.set_attention_backend("flash")
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 
     module_no_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
+    module_no_sp.set_attention_backend("flash")
     module_no_sp = module_no_sp.to(device=device, dtype=torch.bfloat16)
     module_no_sp.load_state_dict(
         {k: v.detach().clone() for k, v in module_sp.state_dict().items()},
@@ -366,10 +370,12 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int):
 
     module_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
     module_sp.enable_parallelism(config=ContextParallelConfig(ulysses_degree=sp_size, mesh=ulysses_device_mesh))
+    module_sp.set_attention_backend("flash")
     module_sp = module_sp.to(device=device, dtype=torch.bfloat16)
     sync_model_parameters_global(module_sp)
 
     module_no_sp = AutoModel.from_config(cfg, torch_dtype=torch.bfloat16)
+    module_no_sp.set_attention_backend("flash")
     module_no_sp = module_no_sp.to(device=device, dtype=torch.bfloat16)
     module_no_sp.load_state_dict(
         {k: v.detach().clone() for k, v in module_sp.state_dict().items()},
