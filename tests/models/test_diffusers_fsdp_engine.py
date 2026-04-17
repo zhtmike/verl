@@ -21,7 +21,7 @@ import ray
 import torch
 
 from verl import DataProto
-from verl.models.diffusers_model import build_scheduler
+from verl.models.diffusion_model import build_scheduler
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils import tensordict_utils as tu
 from verl.workers.config import DiffusionModelConfig, FSDPDiffusionActorConfig, TrainingWorkerConfig
@@ -29,7 +29,7 @@ from verl.workers.engine_workers import TrainingWorker
 from verl.workers.utils.losses import diffusion_loss
 from verl.workers.utils.padding import embeds_padding_2_no_padding
 
-EXTERNAL_LIB = "examples.flowgrpo_trainer.diffusers.qwen_image"
+EXTERNAL_LIB = "examples.flowgrpo_trainer.diffusers_impl.qwen_image"
 
 
 def create_training_config(model_type, strategy, device_count, model):

@@ -87,8 +87,7 @@ def init_config() -> DictConfig:
         config.actor_rollout_ref.rollout.max_sequence_length = max_length
         config.actor_rollout_ref.rollout.nnodes = 1
 
-        qwen_pipeline = "examples.flowgrpo_trainer.vllm_omni.pipeline_qwenimage.QwenImagePipelineWithLogProb"
-        config.actor_rollout_ref.rollout.engine_kwargs.vllm_omni = {"custom_pipeline": qwen_pipeline}
+        config.actor_rollout_ref.rollout.external_lib = "examples.flowgrpo_trainer.vllm_omni_impl"
         config.reward.reward_manager.name = "image"
         config.trainer.n_gpus_per_node = 4
 

@@ -128,6 +128,8 @@ class DiffusionRolloutConfig(BaseConfig):
 
     algo: Optional[DiffusionRolloutAlgoConfig] = field(default_factory=DiffusionRolloutAlgoConfig)
 
+    external_lib: Optional[str] = None
+
     def __post_init__(self):
         """Validate the diffusion rollout config"""
         if self.mode == "sync":

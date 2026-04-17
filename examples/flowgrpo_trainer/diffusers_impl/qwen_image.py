@@ -23,7 +23,7 @@ from diffusers.models.transformers.transformer_qwenimage import QwenImageTransfo
 from diffusers.pipelines.qwenimage.pipeline_qwenimage import calculate_shift
 from tensordict import TensorDict
 
-from verl.models.diffusers_model import DiffusionModelBase
+from verl.models.diffusion_model import DiffusionModelBase
 from verl.utils import tensordict_utils as tu
 from verl.utils.device import get_device_name
 from verl.workers.config import DiffusionModelConfig
