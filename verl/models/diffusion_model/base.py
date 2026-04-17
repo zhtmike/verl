@@ -51,7 +51,7 @@ class DiffusionModelBase(ABC):
 
         DiffusionModelConfig(
             ...,
-            external_lib="examples.flowgrpo_trainer.diffusers.qwen_image",
+            external_lib="examples.flowgrpo_trainer.diffusers_impl.qwen_image",
         )
     """
 
@@ -168,3 +168,57 @@ class DiffusionModelBase(ABC):
             step (int): the current step in the diffusion process.
         """
         pass
+
+
+class VllmOmniPipelineBase:
+    """Registry base for vllm-omni custom diffusion pipeline classes.
+
+    Registration
+    ------------
+    Decorate your custom pipeline class with
+    ``@VllmOmniPipelineBase.register("name")``.
+    The *name* must match the ``_class_name`` value in the pipeline's
+    ``model_index.json`` (which is auto-detected into
+    ``DiffusionModelConfig.architecture``).
+
+    Example::
+
+        @VllmOmniPipelineBase.register("QwenImagePipeline")
+        class QwenImagePipelineWithLogProb(QwenImagePipeline):
+            ...
+
+    Loading external implementations
+    ---------------------------------
+    Implementations live outside the core verl package (e.g. under
+    ``examples/``).  Ensure the module containing your subclass is imported
+    before the registry is queried.  The easiest way is to include it in
+    ``DiffusionModelConfig.external_lib`` so it is imported during
+    model-config initialisation::
+
+        actor_rollout_ref.model.external_lib="examples.flowgrpo_trainer.diffusers_impl.qwen_image"
+    """
+
+    _registry: dict[str, type] = {}
+
+    @classmethod
+    def register(cls, name: str):
+        """Class decorator that registers a pipeline subclass under *name*."""
+
+        def decorator(subclass: type) -> type:
+            cls._registry[name] = subclass
+            return subclass
+
+        return decorator
+
+    @classmethod
+    def get_class(cls, architecture: str) -> type | None:
+        """Return the registered pipeline class for *architecture*, or ``None``."""
+        return cls._registry.get(architecture)
+
+    @classmethod
+    def get_pipeline_path(cls, architecture: str) -> str | None:
+        """Return the fully-qualified dotted import path for *architecture*, or ``None``."""
+        pipeline_cls = cls._registry.get(architecture)
+        if pipeline_cls is None:
+            return None
+        return f"{pipeline_cls.__module__}.{pipeline_cls.__qualname__}"

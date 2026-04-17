@@ -224,3 +224,6 @@ max_sequence_length: 512
 
 # Distilled guidance scale for models with guidance_embeds; null to disable
 guidance_scale: null
+
+# whether to use external libs for the model
+external_lib: null
