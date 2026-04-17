@@ -509,17 +509,6 @@ class RayPPOTrainer:
         batch_reward = self.reward_loop_manager.compute_rm_score(batch)
         return batch_reward
 
-    def _should_compute_teacher_colocate(self, batch: DataProto) -> bool:
-        return self.use_teacher_policy and not self.distillation_config.teacher_model.enable_resource_pool
-
-    def _compute_teacher_colocate(self, batch: DataProto) -> DataProto:
-        """Compute teacher logprobs after rollout when teacher and student are colocated."""
-        assert self.teacher_model_manager is not None, "TeacherModelManager is None"
-        teacher_batch = self.teacher_model_manager.compute_logprobs(batch)
-        if "teacher_multi_modal_data" in batch.non_tensor_batch:
-            batch.pop(non_tensor_batch_keys=["teacher_multi_modal_data"])
-        return teacher_batch
-
     def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -1224,7 +1213,9 @@ class RayPPOTrainer:
             batch_td = batch.to_tensordict()
             # step 2: convert from padding to no-padding
             batch_td = left_right_2_no_padding(batch_td)
-            calculate_entropy = self.config.actor_rollout_ref.actor.entropy_coeff != 0.0
+            calculate_entropy = self.config.actor_rollout_ref.actor.calculate_entropy or (
+                self.config.actor_rollout_ref.actor.entropy_coeff != 0.0
+            )
             distillation_use_topk = (
                 self.distillation_config.distillation_loss.loss_settings.use_topk
                 if is_distillation_enabled(self.config.get("distillation"))
@@ -1417,10 +1408,6 @@ class RayPPOTrainer:
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
-                    if self._should_compute_teacher_colocate(batch):
-                        with marked_timer("teacher", timing_raw, color="cyan"):
-                            batch_teacher = self._compute_teacher_colocate(batch)
-                            batch = batch.union(batch_teacher)
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
