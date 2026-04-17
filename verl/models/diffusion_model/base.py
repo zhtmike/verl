@@ -46,13 +46,10 @@ class DiffusionModelBase(ABC):
     ---------------------------------
     Implementations live outside the core verl package (e.g. under
     ``examples/``).  Set ``external_lib`` on ``DiffusionModelConfig``
-    to the module that contains your subclass so it is imported (and
-    thus registered) before the registry is queried::
+    to the dotted module path so it is imported (and thus registered)
+    before the registry is queried::
 
-        DiffusionModelConfig(
-            ...,
-            external_lib="examples.flowgrpo_trainer.diffusers_impl.qwen_image",
-        )
+        actor_rollout_ref.model.external_lib="examples.flowgrpo_trainer.diffusers_impl"
     """
 
     _registry: dict[str, type["DiffusionModelBase"]] = {}
@@ -191,11 +188,11 @@ class VllmOmniPipelineBase:
     ---------------------------------
     Implementations live outside the core verl package (e.g. under
     ``examples/``).  Ensure the module containing your subclass is imported
-    before the registry is queried.  The easiest way is to include it in
-    ``DiffusionModelConfig.external_lib`` so it is imported during
-    model-config initialisation::
+    before the registry is queried.  Set ``external_lib`` on
+    ``DiffusionRolloutConfig`` to the dotted module path so it is imported
+    just before the registry is queried in ``run_server``::
 
-        actor_rollout_ref.model.external_lib="examples.flowgrpo_trainer.diffusers_impl.qwen_image"
+        actor_rollout_ref.rollout.external_lib="examples.flowgrpo_trainer.vllm_omni_impl"
     """
 
     _registry: dict[str, type] = {}
