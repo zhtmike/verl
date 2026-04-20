@@ -203,5 +203,5 @@ class ServerAdapter(BaseRollout):
             "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
             "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
             "or use HFRollout for synchronous generation. "
-            "See https://github.com/volcengine/verl/issues/4682 for more details."
+            "See https://github.com/verl-project/verl/issues/4682 for more details."
         )

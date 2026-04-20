@@ -50,8 +50,6 @@ class TeacherModelManager:
         self._initialize_llm_servers()
         self._initialize_load_balancer()
 
-        self.sleep()
-
     def _initialize_llm_servers(self):
         teacher_model_config: DistillationTeacherModelConfig = self.config.teacher_model
         teacher_world_size = (

@@ -1173,8 +1173,6 @@ class AgentLoopManager:
         Returns:
             DataProto: Output batch.
         """
-        if self.distillation_enabled:
-            await self.teacher_model_manager.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = await asyncio.gather(
             *[
@@ -1182,8 +1180,6 @@ class AgentLoopManager:
                 for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
             ]
         )
-        if self.distillation_enabled:
-            await self.teacher_model_manager.sleep()
         output = DataProto.concat(outputs)
 
         # calculate performance metrics
