@@ -65,6 +65,7 @@ class DiffusionModelConfig(BaseConfig):
     external_lib: Optional[str] = None
 
     enable_gradient_checkpointing: bool = True
+    attn_backend: str = "native"
 
     lora_rank: int = 0
     lora_alpha: int = 64
@@ -92,6 +93,9 @@ class DiffusionModelConfig(BaseConfig):
 
     def __post_init__(self):
         import_external_libs(self.external_lib)
+        valid_backends = {"flash_hub", "native"}
+        if self.attn_backend not in valid_backends:
+            raise ValueError(f"Invalid attn_backend: {self.attn_backend}. Must be one of {sorted(valid_backends)}")
         if self.tokenizer_path is None:
             self.tokenizer_path = os.path.join(self.path, "tokenizer")
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
