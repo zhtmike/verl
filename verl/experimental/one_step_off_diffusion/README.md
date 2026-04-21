@@ -70,7 +70,7 @@ python3 -m verl.experimental.one_step_off_diffusion_policy.main_flowgrpo \
 ### Example Scripts
 
 - Training-style example: `examples/flowgrpo_trainer/run_flowgrpo_one_step_off.sh`
-- CI smoke test: `tests/special_e2e/run_one_step_off_diffusion.sh`
+- CI smoke test: `tests/special_e2e/run_flowgrpo_trainer_one_step_off.sh`
 
 The smoke test follows the same low-cost strategy as
 `tests/special_e2e/run_flowgrpo_trainer_diffusers.sh`.

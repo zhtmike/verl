@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
-# One-step-off diffusion policy e2e smoke test (minimal runtime), vllm_omni rollout.
-#
-# Follows the lightweight setup used by run_flowgrpo_trainer_diffusers.sh:
-# tiny-random model + dummy parquet data + short training.
+# One-step-off diffusion e2e smoke test (minimal runtime), vllm_omni rollout.
 set -xeuo pipefail
 
-NUM_GPUS=${NUM_GPUS:-3}
-ROLLOUT_GPUS=${ROLLOUT_GPUS:-1}
+NUM_GPUS=${NUM_GPUS:-4}
+ROLLOUT_GPUS=${ROLLOUT_GPUS:-2}
 TRAINER_GPUS=${TRAINER_GPUS:-$((NUM_GPUS - ROLLOUT_GPUS))}
 
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/tiny-random/Qwen-Image}
@@ -86,7 +83,6 @@ python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     reward.num_workers=1 \
     reward.reward_manager.name=visual \
     reward.reward_model.enable=False \
-    trainer.use_legacy_worker_impl=disable \
     trainer.logger=console \
     trainer.project_name=verl-test \
     trainer.experiment_name=one-step-off-diffusion-e2e \
