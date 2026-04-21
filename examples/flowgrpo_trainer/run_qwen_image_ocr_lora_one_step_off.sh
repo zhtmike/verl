@@ -77,4 +77,4 @@ python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     trainer.save_freq=30 \
     trainer.test_freq=30 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=300 $@
+    trainer.total_training_steps=300 "$@"
