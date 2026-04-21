@@ -456,9 +456,10 @@ def _diffusers_ulysses_fwd_bwd_fsdp(sp_size: int, dp_size: int, backend: str):
 
     torch.testing.assert_close(loss_sp, loss_no_sp, rtol=1e-2, atol=3e-5)
 
-    # FSDP averages gradients by world_size during reduce-scatter. Use
-    # summon_full_params to gather full (un-sharded) gradients, then scale by
-    # world_size to undo the averaging before comparing with the non-SP model.
+    # FSDP sums the sp_size partial gradients (one per SP rank) via reduce-scatter
+    # then divides by world_size, leaving full_grad / sp_size on each rank. Use
+    # summon_full_params to gather un-sharded gradients, then scale by sp_size to
+    # recover the full gradient before comparing with the non-SP model.
     grad_sp_list, grad_no_sp_list = [], []
     with FSDP.summon_full_params(module_sp, with_grads=True):
         for p_sp, p_no_sp in zip(module_sp.parameters(), module_no_sp.parameters(), strict=False):
