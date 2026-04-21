@@ -5,9 +5,14 @@ set -xeuo pipefail
 NUM_GPUS=${NUM_GPUS:-4}
 ROLLOUT_GPUS=${ROLLOUT_GPUS:-2}
 TRAINER_GPUS=${TRAINER_GPUS:-$((NUM_GPUS - ROLLOUT_GPUS))}
+REWARD_GPUS=${REWARD_GPUS:-1}
 
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/tiny-random/Qwen-Image}
 TOKENIZER_PATH=${TOKENIZER_PATH:-${MODEL_PATH}/tokenizer}
+
+ENGINE_REWARD=vllm
+reward_path=examples/flowgrpo_trainer/reward_fn.py
+reward_model_name=${REWARD_MODEL_PATH:-${HOME}/models/tiny-random/qwen3-vl}
 DATA_DIR=${DATA_DIR:-${HOME}/data/dummy_diffusion}
 dummy_train_path=${TRAIN_FILES:-${DATA_DIR}/train.parquet}
 dummy_test_path=${VAL_FILES:-${DATA_DIR}/test.parquet}
@@ -78,9 +83,20 @@ python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     actor_rollout_ref.rollout.checkpoint_engine.backend='nccl' \
     actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=1024 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${micro_bsz_per_gpu} \
-    reward.num_workers=1 \
+    reward.num_workers=${REWARD_GPUS} \
     reward.reward_manager.name=visual \
-    reward.reward_model.enable=False \
+    reward.reward_model.enable=True \
+    reward.reward_model.model_path=${reward_model_name} \
+    reward.reward_model.rollout.name=${ENGINE_REWARD} \
+    reward.reward_model.enable_resource_pool=True \
+    reward.reward_model.nnodes=1 \
+    reward.reward_model.n_gpus_per_node=${REWARD_GPUS} \
+    reward.reward_model.rollout.gpu_memory_utilization=0.9 \
+    reward.reward_model.rollout.free_cache_engine=False \
+    reward.reward_model.rollout.tensor_model_parallel_size=1 \
+    reward.reward_model.rollout.enforce_eager=False \
+    reward.custom_reward_function.path=${reward_path} \
+    reward.custom_reward_function.name=compute_score_ocr \
     trainer.logger=console \
     trainer.project_name=verl-test \
     trainer.experiment_name=one-step-off-diffusion-e2e \
