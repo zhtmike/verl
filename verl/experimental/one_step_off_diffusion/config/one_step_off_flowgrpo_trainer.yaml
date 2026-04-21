@@ -15,6 +15,10 @@ rollout:
 
 # To adapt to the current logic of AgentLoopManager
 actor_rollout_ref:
+  model:
+    lora:
+      merge: True
+
   rollout:
     # Must be turned off! Otherwise, Parameter synchronization cannot be performed.
     free_cache_engine: False

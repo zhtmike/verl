@@ -55,6 +55,12 @@ mtp:
 
   enable: False
 
+# LoRA (Low-Rank Adaptation) configuration for parameter-efficient fine-tuning
+lora:
+
+  # whether to sync weights / refit by either merging LoRA adapters into the base model weights before transferring to vLLM (for better inference speed but more refit time and potential precision loss). If this is False, it will load separate adapters.
+  merge: False
+
 # image/video height
 height: ${oc.select:actor_rollout_ref.rollout.height,512}
 
