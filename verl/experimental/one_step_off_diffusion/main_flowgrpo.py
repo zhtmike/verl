@@ -22,7 +22,7 @@ import socket
 import hydra
 import ray
 
-from verl.experimental.one_step_off_diffusion_policy.ray_diffusion_trainer import OneStepOffRayFlowGRPOTrainer
+from verl.experimental.one_step_off_diffusion.ray_diffusion_trainer import OneStepOffRayFlowGRPOTrainer
 from verl.experimental.separation.utils import create_resource_pool_manager, create_role_worker_mapping
 from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
