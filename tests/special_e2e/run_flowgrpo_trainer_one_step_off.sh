@@ -62,8 +62,6 @@ python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     actor_rollout_ref.rollout.name=${ENGINE} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.agent.num_workers=1 \
-    actor_rollout_ref.rollout.load_format=safetensors \
-    actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.num_inference_steps=4 \
     actor_rollout_ref.rollout.height=256 \
     actor_rollout_ref.rollout.width=256 \
