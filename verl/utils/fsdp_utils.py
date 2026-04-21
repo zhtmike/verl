@@ -673,10 +673,7 @@ def collect_lora_params(
                         for name, param in lora_params.items()
                     }
                 else:
-                    if is_diffusers:
-                        model = peft_model
-                    else:
-                        model = peft_model.base_model.model
+                    model = peft_model.base_model.model
                     orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else get_device_name()
                     model = model.to("cpu")
                     for name, param in model.state_dict().items():
