@@ -61,7 +61,7 @@ This ensures rollout uses fresh parameters with one-step lag.
 ### Entrypoint
 
 ```shell
-python3 -m verl.experimental.one_step_off_diffusion_policy.main_flowgrpo \
+python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     --config-path=config \
     --config-name='one_step_off_flowgrpo_trainer.yaml' \
     algorithm.adv_estimator=flow_grpo
@@ -69,7 +69,7 @@ python3 -m verl.experimental.one_step_off_diffusion_policy.main_flowgrpo \
 
 ### Example Scripts
 
-- Training-style example: `examples/flowgrpo_trainer/run_flowgrpo_one_step_off.sh`
+- Training-style example: `examples/flowgrpo_trainer/run_qwen_image_ocr_lora_one_step_off.sh`
 - CI smoke test: `tests/special_e2e/run_flowgrpo_trainer_one_step_off.sh`
 
 The smoke test follows the same low-cost strategy as
@@ -89,7 +89,7 @@ The smoke test follows the same low-cost strategy as
 | --- | --- |
 | Task type | Diffusion FlowGRPO |
 | Training mode | One-step-off async |
-| Entrypoint | `verl.experimental.one_step_off_diffusion_policy.main_flowgrpo` |
+| Entrypoint | `verl.experimental.one_step_off_diffusion.main_flowgrpo` |
 | Config | `config/one_step_off_flowgrpo_trainer.yaml` |
 
 ## Acknowledgement
