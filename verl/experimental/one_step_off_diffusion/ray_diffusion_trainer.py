@@ -21,7 +21,6 @@ from pprint import pprint
 from typing import Any, Optional
 
 import numpy as np
-import ray
 from omegaconf import OmegaConf
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
@@ -495,7 +494,6 @@ class OneStepOffRayFlowGRPOTrainer(SeparateRayFlowGRPOTrainer):
         self.metrics = {}
         self.timing_raw = {}
         # reward message
-        self.future_reward = None
         self.reward_tensor = None
         self.reward_extra_infos_dict = {}
 
@@ -584,17 +582,7 @@ class OneStepOffRayFlowGRPOTrainer(SeparateRayFlowGRPOTrainer):
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         batch = batch.union(gen_batch_output)
 
-        # Launch individual reward computations as each generation completes
-        future_reward = None
-
-        # Return the original, now-modified `batch` and the `future_reward`
-        return metrics, timing_raw, epoch, batch, future_reward
-
-    @staticmethod
-    @ray.remote
-    def _launch_individual_rewards(batch, config, tokenizer):
-        reward_tensor, reward_extra_info = extract_reward(batch)
-        return reward_tensor, reward_extra_info
+        return metrics, timing_raw, epoch, batch
 
     async def fit(self):
         """
@@ -661,7 +649,6 @@ class OneStepOffRayFlowGRPOTrainer(SeparateRayFlowGRPOTrainer):
         self.metrics = {"training/global_step": self.global_steps, "training/epoch": self.epoch}
         self.timing_raw = {}
         # reward message
-        self.future_reward = None
         self.reward_tensor = None
         self.reward_extra_infos_dict = {}
 
@@ -708,7 +695,8 @@ class OneStepOffRayFlowGRPOTrainer(SeparateRayFlowGRPOTrainer):
         timing_raw = self.timing_raw
 
         with marked_timer("gen", timing_raw, color="red"):
-            _metrics, _timing_raw, epoch, batch, future_reward = await batch_data_future
+            _metrics, _timing_raw, epoch, batch = await batch_data_future
+            self.epoch = epoch
             timing_raw.update(batch.meta_info["timing"])
             timing_raw.update(_timing_raw)
             metrics.update(_metrics)
