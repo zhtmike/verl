@@ -1,4 +1,4 @@
-# QweniImage full-weight RL, vllm_omni rollout
+# Qwen-Image full-weight RL, vllm_omni rollout
 set -x
 
 ocr_train_path=$HOME/data/ocr/train.parquet
@@ -65,4 +65,4 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.save_freq=30 \
     trainer.test_freq=30 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=300 $@
+    trainer.total_training_steps=300 "$@"
