@@ -148,7 +148,7 @@ def compute_flow_grpo_outcome_advantage(
         Returns: `(torch.Tensor)`
             shape is (bs, response_length)
     """
-    scores = sample_level_rewards
+    scores = sample_level_rewards.clone()
     assert scores.ndim == 2
     id2score = defaultdict(list)
     id2mean = {}
