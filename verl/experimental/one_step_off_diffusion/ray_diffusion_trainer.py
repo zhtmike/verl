@@ -121,7 +121,6 @@ class SeparateRayFlowGRPOTrainer(RayFlowGRPOTrainer):
     def _create_worker_classes(self):
         self._create_actor_rollout_classes()
         self._create_reference_policy_class()
-        self._create_reward_model_class()
 
     def _create_actor_rollout_classes(self):
         raise NotImplementedError
@@ -136,16 +135,6 @@ class SeparateRayFlowGRPOTrainer(RayFlowGRPOTrainer):
                 role=str(Role.RefPolicy),
             )
             self.resource_pool_to_cls[resource_pool][str(Role.RefPolicy)] = ref_policy_cls
-
-    def _create_reward_model_class(self):
-        # create a reward model if reward_fn is None
-        if self.use_rm:
-            # we create a RM here
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(
-                self.role_worker_mapping[Role.RewardModel], config=self.config.reward.reward_model
-            )
-            self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
 
     def _init_worker_groups(self):
         # initialize WorkerGroup
@@ -173,9 +162,8 @@ class SeparateRayFlowGRPOTrainer(RayFlowGRPOTrainer):
             self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
-        if self.use_rm:
-            self.rm_wg = self.all_wg[str(Role.RewardModel)]
-            self.rm_wg.init_model()
+        # RM is managed by RewardLoopManager, not a worker group
+        self.rm_wg = None
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = self.all_wg[str(Role.ActorRollout)]
@@ -526,10 +514,8 @@ class OneStepOffRayFlowGRPOTrainer(SeparateRayFlowGRPOTrainer):
             self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
+        # RM is managed by RewardLoopManager, not a worker group
         self.rm_wg = None
-        if self.use_rm:
-            self.rm_wg = self.all_wg[str(Role.RewardModel)]
-            self.rm_wg.init_model()
 
         self.actor_wg = self.all_wg[str(Role.Actor)]
         self.actor_wg.init_model()
