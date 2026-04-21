@@ -32,7 +32,7 @@ def compute_data_metrics_diffusion(batch: DataProto) -> dict[str, Any]:
 
     Args:
         batch: A DataProto object containing diffusion batch data with
-            sample_level_rewards [B, 1], advantages [B, T], returns [B, T].
+            sample_level_rewards [B, T], advantages [B, T], returns [B, T].
 
     Returns:
         A dictionary of metrics including:
@@ -43,7 +43,7 @@ def compute_data_metrics_diffusion(batch: DataProto) -> dict[str, Any]:
             - critic/advantages/mean, max, min: Element-wise advantage statistics over B*T
             - critic/returns/mean, max, min: Element-wise return statistics over B*T
     """
-    sequence_reward = batch.batch["sample_level_rewards"].squeeze(-1)  # [B]
+    sequence_reward = batch.batch["sample_level_rewards"].mean(dim=1)  # [B]
 
     # Flatten [B, T] tensors for aggregate statistics across timesteps
     advantages = batch.batch["advantages"].flatten()  # [B*T]
