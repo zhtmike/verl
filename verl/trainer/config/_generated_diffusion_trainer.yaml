@@ -183,6 +183,8 @@ actor_rollout_ref:
     mtp:
       _target_: verl.workers.config.MtpConfig
       enable: false
+    lora:
+      merge: false
     height: ${oc.select:actor_rollout_ref.rollout.height,512}
     width: ${oc.select:actor_rollout_ref.rollout.width,512}
     num_inference_steps: ${oc.select:actor_rollout_ref.rollout.num_inference_steps,10}

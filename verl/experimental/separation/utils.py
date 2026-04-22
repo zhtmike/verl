@@ -16,7 +16,7 @@
 import ray
 
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-from verl.trainer.ppo.utils import Role, need_reference_policy
+from verl.trainer.ppo.utils import Role, need_reference_policy, need_reward_model
 
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
@@ -50,6 +50,15 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     if Role.Rollout in roles:
         assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
         assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
+
+    # Reward model resource pool
+    if need_reward_model(config) and Role.RewardModel not in mapping:
+        if config.reward.reward_model.enable_resource_pool:
+            reward_pool = [config.reward.reward_model.n_gpus_per_node] * config.reward.reward_model.nnodes
+            resource_pool_spec["reward_pool"] = reward_pool
+            mapping[Role.RewardModel] = "reward_pool"
+        else:
+            mapping[Role.RewardModel] = "trainer_pool"
 
     return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 

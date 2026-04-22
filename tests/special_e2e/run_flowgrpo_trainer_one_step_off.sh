@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
-# FlowGRPO diffusion e2e smoke test (minimal runtime), vllm_omni rollout.
-#
-# Exercises: parquet load -> vllm_omni rollout -> visual reward (jpeg_compressibility,
-# with generative reward model) -> flow_grpo -> FSDP LoRA -> sync.
-#
-# Requires: vllm-omni, diffusers>=0.37, tiny Qwen-Image at ~/models/tiny-random/Qwen-Image
+# One-step-off diffusion e2e smoke test (minimal runtime), vllm_omni rollout.
 set -xeuo pipefail
 
-# Override via env: NUM_GPUS, MODEL_PATH, DATA_DIR, TOTAL_TRAIN_STEPS, TRAIN_FILES, VAL_FILES
 NUM_GPUS=${NUM_GPUS:-4}
+ROLLOUT_GPUS=${ROLLOUT_GPUS:-2}
+TRAINER_GPUS=${TRAINER_GPUS:-$((NUM_GPUS - ROLLOUT_GPUS))}
+REWARD_GPUS=${REWARD_GPUS:-1}
+
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/tiny-random/Qwen-Image}
 TOKENIZER_PATH=${TOKENIZER_PATH:-${MODEL_PATH}/tokenizer}
+
+ENGINE_REWARD=vllm
+reward_path=examples/flowgrpo_trainer/reward_fn.py
+reward_model_name=${REWARD_MODEL_PATH:-${HOME}/models/tiny-random/qwen3-vl}
 DATA_DIR=${DATA_DIR:-${HOME}/data/dummy_diffusion}
 dummy_train_path=${TRAIN_FILES:-${DATA_DIR}/train.parquet}
 dummy_test_path=${VAL_FILES:-${DATA_DIR}/test.parquet}
 TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
 ENGINE=vllm_omni
-REWARD_ENGINE=vllm
-reward_path=examples/flowgrpo_trainer/reward_fn.py
-reward_model_name=${REWARD_MODEL_PATH:-${HOME}/models/tiny-random/qwen3-vl}
 max_prompt_length=256
+
+if [ "${TRAINER_GPUS}" -le 0 ]; then
+    echo "TRAINER_GPUS must be > 0. Got NUM_GPUS=${NUM_GPUS}, ROLLOUT_GPUS=${ROLLOUT_GPUS}."
+    exit 1
+fi
 
 if [ ! -f "${dummy_train_path}" ] || [ ! -f "${dummy_test_path}" ]; then
     python3 tests/special_e2e/create_dummy_diffusion_data.py \
@@ -31,16 +35,17 @@ fi
 
 n_resp_per_prompt=2
 micro_bsz_per_gpu=1
-micro_bsz=$((micro_bsz_per_gpu * NUM_GPUS))
+micro_bsz=$((micro_bsz_per_gpu * TRAINER_GPUS))
 mini_bsz=${micro_bsz}
 train_batch_size=$((mini_bsz * n_resp_per_prompt))
 
-python3 -m verl.trainer.main_flowgrpo \
+python3 -m verl.experimental.one_step_off_diffusion.main_flowgrpo \
     algorithm.adv_estimator=flow_grpo \
     data.train_files=${dummy_train_path} \
     data.val_files=${dummy_test_path} \
     data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=${max_prompt_length} \
+    actor_rollout_ref.hybrid_engine=False \
     actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.model.tokenizer_path=${TOKENIZER_PATH} \
     actor_rollout_ref.model.external_lib="examples.flowgrpo_trainer.diffusers_impl" \
@@ -62,8 +67,6 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.name=${ENGINE} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.agent.num_workers=1 \
-    actor_rollout_ref.rollout.load_format=safetensors \
-    actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.num_inference_steps=4 \
     actor_rollout_ref.rollout.height=256 \
     actor_rollout_ref.rollout.width=256 \
@@ -77,21 +80,31 @@ python3 -m verl.trainer.main_flowgrpo \
     actor_rollout_ref.rollout.val_kwargs.num_inference_steps=4 \
     actor_rollout_ref.rollout.val_kwargs.algo.noise_level=0.0 \
     actor_rollout_ref.rollout.external_lib=examples.flowgrpo_trainer.vllm_omni_impl \
+    actor_rollout_ref.rollout.checkpoint_engine.backend='nccl' \
+    actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=1024 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${micro_bsz_per_gpu} \
-    reward.num_workers=1 \
+    reward.num_workers=${REWARD_GPUS} \
     reward.reward_manager.name=visual \
     reward.reward_model.enable=True \
     reward.reward_model.model_path=${reward_model_name} \
-    reward.reward_model.rollout.name=${REWARD_ENGINE} \
+    reward.reward_model.rollout.name=${ENGINE_REWARD} \
+    reward.reward_model.enable_resource_pool=True \
+    reward.reward_model.nnodes=1 \
+    reward.reward_model.n_gpus_per_node=${REWARD_GPUS} \
+    reward.reward_model.rollout.gpu_memory_utilization=0.9 \
+    reward.reward_model.rollout.free_cache_engine=False \
     reward.reward_model.rollout.tensor_model_parallel_size=1 \
+    reward.reward_model.rollout.enforce_eager=False \
     reward.custom_reward_function.path=${reward_path} \
     reward.custom_reward_function.name=compute_score_ocr \
     trainer.logger=console \
     trainer.project_name=verl-test \
-    trainer.experiment_name=flowgrpo-diffusion-e2e \
+    trainer.experiment_name=one-step-off-diffusion-e2e \
     trainer.log_val_generations=0 \
-    trainer.n_gpus_per_node=${NUM_GPUS} \
+    trainer.n_gpus_per_node=${TRAINER_GPUS} \
     trainer.nnodes=1 \
+    rollout.n_gpus_per_node=${ROLLOUT_GPUS} \
+    rollout.nnodes=1 \
     trainer.val_before_train=False \
     trainer.test_freq=-1 \
     trainer.save_freq=-1 \
@@ -99,4 +112,4 @@ python3 -m verl.trainer.main_flowgrpo \
     trainer.total_training_steps=${TOTAL_TRAIN_STEPS} \
     "$@"
 
-echo "FlowGRPO diffusion e2e test passed (training completed successfully)."
+echo "One-step-off diffusion e2e test passed (training completed successfully)."
