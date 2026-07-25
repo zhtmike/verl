@@ -583,6 +583,16 @@ class VeOmniEngine(FSDPEngine):
         if self._is_offload_optimizer:
             offload_veomni_optimizer(self.optimizer)
 
+    def get_per_tensor_param_shard(self, **kwargs):
+        # veomni splits grouped experts twice (manual ep split outside DTensor +
+        # FSDP-sharded local block); the inherited DTensor-identity export would
+        # declare the wrong full tensor for them and corrupt the rollout weights
+        # silently. The EP-aware export lands in the follow-up PR.
+        raise NotImplementedError(
+            "delta_sharded does not support the veomni backend yet (EP-aware shard "
+            "export lands in a follow-up PR); use a full-sync checkpoint backend"
+        )
+
     def get_per_tensor_param(self, **kwargs):
         # FSDP2 CPUOffloadPolicy owns CPU<->accelerator placement; calling model.to(device)
         # here leaves the module half-moved and crashes state_dict() below (#5995). The
