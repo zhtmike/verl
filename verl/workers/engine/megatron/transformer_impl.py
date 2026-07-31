@@ -76,6 +76,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class MegatronEngine(BaseEngine):
+    # mcore keeps model-parallel-local params resident and moves large host
+    # buffers every step; pinning the whole delta snapshot set on top of that
+    # starves the node's cudaHostAlloc pool and surfaces as CUDA OOM in
+    # unrelated allocations (observed at 30B/235B) -- pageable is the safe
+    # default here.
+    delta_pin_snapshots = False
+
     def __init__(
         self,
         model_config: HFModelConfig,
@@ -846,6 +853,63 @@ class MegatronEngine(BaseEngine):
             per_tensor_param = export_qat_weights(per_tensor_param, self.module, self._qat_config.mode, self.bridge)
 
         return per_tensor_param, peft_config
+
+    def _mcore_export_index(self):
+        """Build (once) the per-parameter delta export index: geometry specs and
+        form-B probes derived from the bridge's conversion tasks. See
+        :mod:`verl.workers.engine.megatron.delta_export`."""
+        index = getattr(self, "_delta_export_index", None)
+        if index is None:
+            from .delta_export import build_export_index
+
+            assert not self.vanilla_bridge, (
+                "megatron delta_sharded is built on Megatron-Bridge param mappings; "
+                "the deprecated vanilla mbridge flavor is not supported"
+            )
+            assert self.peft_cls is None, "megatron delta_sharded does not support LoRA"
+            index = build_export_index(self.bridge, self.module)
+            self._delta_export_index = index
+            self._delta_export_by_name = {rec.megatron_name: rec for rec in index}
+            self._delta_slot_cache: dict = {}
+        return index
+
+    def get_per_tensor_param_shard(self, **kwargs):
+        """Yield each rank's *local* mcore shard ``(name, local_flat_bf16,
+        ShardSpec)`` -- the spec carries only the wire merge group (the
+        comm-stubbed probe owns all shard geometry). Pure export, no side
+        effects. TP+EP only (PP=1 asserted in the index builder)."""
+        load_megatron_model_to_gpu(self.module, load_grad=False)
+        index = self._mcore_export_index()
+
+        def _gen():
+            for rec in index:
+                local = rec.param.data
+                if local.is_floating_point() and local.dtype != torch.bfloat16:
+                    local = local.to(torch.bfloat16)
+                yield rec.megatron_name, local.reshape(-1), rec.spec
+
+        return _gen(), None
+
+    def _hf_delta_entry(self, name, spec, place, lidx, lval):
+        """mcore's per-param entry builder: probe the bridge's own converter
+        (comm-stubbed copy -- real group sizes, gathers synthesized locally)
+        with NaN sentinels -- see
+        :func:`verl.workers.engine.megatron.delta_export.mcore_hf_delta_entry`."""
+        from .delta_export import mcore_hf_delta_entry
+
+        rec = self._delta_export_by_name[name]
+        return mcore_hf_delta_entry(rec, place, lidx, lval, self._delta_slot_cache)
+
+    def get_per_tensor_param_delta_shard(self, **kwargs):
+        """Yield the delta engine's steady payloads -- FINAL HF-coordinate entries
+        per mcore parameter (see the FSDP engine's method of the same name for the
+        contract; MegatronEngine extends BaseEngine directly, so the thin wrapper
+        is repeated here). Requires a prior :meth:`prime_delta_snapshots` call."""
+        from ..utils import hf_delta_export
+
+        self._delta_shard_snap = getattr(self, "_delta_shard_snap", {})
+        gen, _ = self.get_per_tensor_param_shard()
+        return hf_delta_export(gen, self._delta_shard_snap, self._hf_delta_entry), None
 
     def disable_adapter(self) -> ContextManager:
         return self.peft_cls.disable_adapter(self.module)

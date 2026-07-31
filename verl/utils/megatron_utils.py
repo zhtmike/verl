@@ -309,7 +309,12 @@ def make_megatron_module(
 ):
     from verl.models.mcore.config_converter import get_hf_rope_theta
 
-    hf_config.rope_theta = get_hf_rope_theta(hf_config)
+    try:
+        hf_config.rope_theta = get_hf_rope_theta(hf_config)
+    except AttributeError:
+        # NoPE / hybrid-SSM configs (e.g. NemotronH) carry no rope at all; the
+        # provider/bridge owns rotary setup, so absence is not an error here.
+        pass
 
     if override_model_config is None:
         override_model_config = {}
