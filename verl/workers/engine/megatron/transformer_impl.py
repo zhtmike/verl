@@ -873,22 +873,27 @@ class MegatronEngine(BaseEngine):
                 "the deprecated vanilla mbridge flavor is not supported"
             )
             assert self.peft_cls is None, "megatron delta_sharded does not support LoRA"
-            index = build_export_index(self.bridge, self.module)
+            self._delta_slot_cache: dict = {}
+            index = build_export_index(self.bridge, self.module, self._delta_slot_cache)
             self._delta_export_index = index
             self._delta_export_by_name = {rec.megatron_name: rec for rec in index}
-            self._delta_slot_cache: dict = {}
         return index
 
     def get_per_tensor_param_shard(self, **kwargs):
         """Yield each rank's *local* mcore shard ``(name, local_flat_bf16,
         ShardSpec)`` -- the spec carries only the wire merge group (the
         comm-stubbed probe owns all shard geometry). Pure export, no side
-        effects. TP+EP only (PP=1 asserted in the index builder)."""
+        effects. Params owned by another pipeline stage yield an empty shard
+        (zero-count lockstep rows; see the index builder)."""
         load_megatron_model_to_gpu(self.module, load_grad=False)
         index = self._mcore_export_index()
 
         def _gen():
+            empty = torch.empty(0, dtype=torch.bfloat16, device=get_device_id())
             for rec in index:
+                if rec.param is None:
+                    yield rec.megatron_name, empty, rec.spec
+                    continue
                 local = rec.param.data
                 if local.is_floating_point() and local.dtype != torch.bfloat16:
                     local = local.to(torch.bfloat16)
