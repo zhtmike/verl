@@ -241,6 +241,15 @@ class vLLMColocateWorkerExtension:
         # =========================== step 1: prepare for weight loading ===========================
         quant_reload_states = None
 
+        # The engine came up on dummy weights, whose init zeroes integer buffers on
+        # ROCm -- including the expert-parallel routing maps, which no weight stream
+        # restores. Repair them before the reload so the rollout routes correctly.
+        if torch.version.hip is not None:
+            from verl.utils.vllm.rocm_vllm_moe_expert_map import restore_moe_expert_maps
+
+            for model in self._iter_all_models():
+                restore_moe_expert_maps(model)
+
         if self._is_qat_model:
             # QAT (compressed-tensors): Prepare for weight loading BEFORE receiving any buckets
             from verl.utils.qat import prepare_qat_for_load_weights

@@ -253,6 +253,24 @@ def apply_mxfp8_transformation_after_loading(model):
                 module.quant_method.process_weights_after_loading(module)
 
 
+def clear_rocm_attention_weight_caches(model):
+    """Drop the bf16 ``wo_a`` copy vLLM derives from the loaded weight.
+
+    ``rocm_aiter_mla_sparse._get_cached_wo_a_bf16`` caches a dequantized ``wo_a``
+    on the module, assuming the weight is static. A refit updates the weight but
+    not the cache, so attention would keep using the previous step's copy. The
+    rebuild is lazy, so dropping the cache here is enough.
+
+    Only ROCm DeepSeek-V4 builds this cache, hence the guard below.
+    """
+    if torch.version.hip is None or not is_deepseek_v4_model(model):
+        return
+
+    for module in model.modules():
+        if hasattr(module, "_dsv4_wo_a_bf16"):
+            del module._dsv4_wo_a_bf16
+
+
 def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     """Quantize weights to FP8 format using a memory-efficient generator.
 
@@ -330,6 +348,7 @@ def prepare_quanted_weights_for_loading(model):
 
 def process_quanted_weights_after_loading(model, reload_state):
     """Re-apply the inference layout undone by ``prepare_quanted_weights_for_loading``."""
+    clear_rocm_attention_weight_caches(model)
     apply_mxfp8_transformation_after_loading(model)
     reload_state = reload_state or {}
     process_fp8_weights_after_loading(reload_state.get("fp8_layers") or [])
