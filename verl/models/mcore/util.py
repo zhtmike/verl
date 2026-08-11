@@ -17,7 +17,8 @@ import inspect
 import logging
 import math
 import os
-from typing import Literal, Optional
+from dataclasses import fields, is_dataclass
+from typing import Literal
 
 import torch
 from megatron.core import parallel_state as mpu
@@ -38,6 +39,12 @@ _PACKED_SEQ_PARAMS_INIT_PARAMS = inspect.signature(PackedSeqParams.__init__).par
 _PACKED_SEQ_PARAMS_HAS_CP_PARTITION_MODE = "cp_partition_mode" in _PACKED_SEQ_PARAMS_INIT_PARAMS or any(
     p.kind is inspect.Parameter.VAR_KEYWORD for p in _PACKED_SEQ_PARAMS_INIT_PARAMS.values()
 )
+
+
+def _packed_seq_params_supports(field_name: str) -> bool:
+    if is_dataclass(PackedSeqParams):
+        return field_name in {field.name for field in fields(PackedSeqParams)}
+    return field_name in getattr(PackedSeqParams, "__dataclass_fields__", {})
 
 
 def _compute_fp8_thd_align_size(align_size: int) -> tuple[int, int]:
@@ -330,10 +337,10 @@ def preprocess_thd_engine(
     pre_process: bool = True,
     need_roll: bool = False,
     use_fp8_padding: bool = False,
-    local_cp_size: Optional[int] = None,
-    min_local_rows: Optional[int] = None,
+    local_cp_size: int | None = None,
+    min_local_rows: int | None = None,
     cp_layout: ContextParallelLayout = "zigzag",
-) -> tuple[torch.Tensor, PackedSeqParams, Optional[torch.Tensor]]:
+) -> tuple[torch.Tensor, PackedSeqParams, torch.Tensor | None]:
     """Pack nested THD sequences and shard their rows across CP ranks.
 
     ``zigzag`` is the default causal-attention layout: each rank receives a
@@ -359,6 +366,8 @@ def preprocess_thd_engine(
     else:
         cp_size = mpu.get_context_parallel_world_size()
         cp_rank = mpu.get_context_parallel_rank()
+    if _packed_seq_params_supports("cp_partition_mode"):
+        extra_packed_args["cp_partition_mode"] = cp_layout
     cp_layout_factor = 2 if cp_layout == "zigzag" and cp_size > 1 else 1
     align_size = tp_size * cp_size * cp_layout_factor
     seqlens_in_batch = input_ids.offsets().diff()
@@ -455,16 +464,15 @@ def preprocess_thd_engine(
             start_idx = cu_seqlens_padded_cpu[i] // cp_size
             # split to 2 chunks
             d = input_ids[i]
-            # If the number of elements in `d` is smaller than the required
-            # alignment size, pad the tensor with zeros so that its total
-            # length matches `align_size`. This ensures size alignment for
-            # downstream operations (e.g., communication or memory alignment).
+            # Alignment applies to the sequence dimension. Extra trailing
+            # dimensions (for example top-k teacher logits) must not affect
+            # whether a short sequence is padded.
             if d.shape[0] < align_size:
-                pad_shape = (align_size - d.shape[0], *d.shape[1:])
-                pad = torch.zeros(pad_shape, dtype=d.dtype, device=d.device)
+                original_size = d.shape[0]
+                pad = torch.zeros((align_size - d.shape[0], *d.shape[1:]), dtype=d.dtype, device=d.device)
                 d = torch.cat([d, pad], dim=0)
                 logger.warning_once(
-                    f"Padding tensor for context parallel alignment, original_size={d.shape[0]}, "
+                    f"Padding tensor for context parallel alignment, original_size={original_size}, "
                     f"align_size={align_size}"
                 )
 
@@ -551,7 +559,7 @@ def postprocess_thd_engine(
     input_ids: torch.Tensor,
     batch_size: int,
     post_process: bool = True,
-    local_cp_size: Optional[int] = None,
+    local_cp_size: int | None = None,
     cp_layout: ContextParallelLayout = "zigzag",
 ) -> torch.Tensor:
     """
@@ -641,7 +649,7 @@ def preprocess_bshd_engine(
     pre_process: bool = True,
     need_roll: bool = False,
     use_fp8_padding: bool = False,
-    forced_max_seqlen: Optional[int] = None,
+    forced_max_seqlen: int | None = None,
 ):
     """
     Preprocess bshd sequences
@@ -844,7 +852,7 @@ def build_vlm_attn_mask_thd(input_ids: torch.Tensor, pad_token_id: int = None):
 
 
 def build_vlm_attn_mask_bshd(
-    input_ids: torch.Tensor, batch_size: int, pad_token_id: int = None, forced_max_seqlen: Optional[int] = None
+    input_ids: torch.Tensor, batch_size: int, pad_token_id: int = None, forced_max_seqlen: int | None = None
 ):
     seqlens_in_batch = input_ids.offsets().diff()
     # When ``forced_max_seqlen`` is given, pad to the mini-batch global max (raw, unaligned)
