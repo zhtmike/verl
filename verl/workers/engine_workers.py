@@ -762,7 +762,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("Before resume weights", logger=logger)
 
         # 1. resume rollout memory (weights were released during sleep)
-        if self.config.rollout.free_cache_engine:
+        # sleep_level=1 (adapter mode) never released weights, so do not resume them.
+        # Backends other than sglang carry no sleep_level, hence the default.
+        if self.config.rollout.free_cache_engine and getattr(self.rollout, "sleep_level", 2) != 1:
             await self.rollout.resume(tags=["weights"])
         log_gpu_memory_usage("After resume weights", logger=logger)
 
