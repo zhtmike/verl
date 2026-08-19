@@ -291,6 +291,30 @@ global_profiler:
   # Path to save profiling contents
   save_path: "outputs/profile"
 
+  # When profiling finishes, move backend artifacts written to a framework-fixed location into
+  # save_path: nsys reports (Ray hardcodes /tmp/ray/session_latest/logs/nsight) and rollout engine
+  # traces (the engines only accept a directory, so each replica writes into a sub-directory).
+  # Turn this on to get every trace of a step in save_path itself, which is what post-processing
+  # that does not walk sub-directories needs. Inherited by every role's profiler.
+  relocate_results: False
+
+  # Shell command executed on the selected ranks ONCE, after the last profiled step (relocate_results
+  # still runs every profiled step, so traces accumulate in save_path). Inherited by every role's
+  # profiler, so setting it here covers actor/rollout/ref/critic at once. Meant to ship the traces
+  # off the node in one shot, e.g. 'mlx asset upload "$VERL_PROFILE_SAVE_PATH"'; running once means
+  # uploading the whole save_path sends each trace exactly once. Env vars available:
+  # VERL_PROFILE_SAVE_PATH, VERL_PROFILE_TOOL, VERL_PROFILE_RANK, VERL_PROFILE_PID, VERL_PROFILE_ROLE,
+  # VERL_PROFILE_RAY_NSIGHT_DIR (nsys only). null disables it.
+  finish_hook_cmd: null
+
+  # Run finish_hook_cmd on all ranks. Inherited by every role's profiler.
+  finish_hook_all_ranks: False
+
+  # Ranks that run finish_hook_cmd. [] or [0,1,...]. Falls back to the profiled ranks when unset.
+  # save_path is usually node-local, so pick one rank per node to upload that node's directory once.
+  # Inherited by every role's profiler.
+  finish_hook_ranks: []
+
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   global_tool_config:
 

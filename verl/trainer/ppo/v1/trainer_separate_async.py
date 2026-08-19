@@ -130,6 +130,13 @@ class PPOTrainerSeparateAsync(PPOTrainer):
         # get server client from standalone rollout
         return self.standalone_server_manager.get_client(client_cls=FullyAsyncLLMServerClient)
 
+    def _rollout_server_managers(self) -> list:
+        managers = super()._rollout_server_managers()
+        standalone = getattr(self, "standalone_server_manager", None)
+        if standalone is not None:
+            managers.append(standalone)
+        return managers
+
     def on_init_end(self):
         # update weights after loading checkpoint
         self.standalone_checkpoint_manager.update_weights(self.global_steps)

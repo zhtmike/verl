@@ -358,8 +358,10 @@ class TorchTitanEngine(BaseEngine):
 
         # train_context activates the (thread-local) SPMD mesh required by spmd_types; it must
         # span backward too, since activation-checkpoint recompute re-runs the forward there.
-        for micro_batch in micro_batches:
-            with self.trainer.train_context(), ctx:
+        # record_function names each micro-batch so a forward-only stage (compute_log_prob /
+        # compute_ref_log_prob) shows "micro_batch<i>" rows instead of a single anonymous forward.
+        for micro_batch_idx, micro_batch in enumerate(micro_batches):
+            with self.trainer.train_context(), ctx, torch.profiler.record_function(f"micro_batch{micro_batch_idx}"):
                 loss, output = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
                 if not forward_only:
                     loss.backward()
