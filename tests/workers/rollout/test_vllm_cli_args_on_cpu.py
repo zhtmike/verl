@@ -184,7 +184,7 @@ class TestCliArgsVllmParserRoundTrip:
         config = {
             "skip_tokenizer_init": False,
             "enable_chunked_prefill": True,
-            "enable_prefix_caching": False,  # the regression this guards
+            "enable_prefix_caching": False,
             "enable_sleep_mode": True,
             "enforce_eager": False,
             "disable_log_stats": False,
