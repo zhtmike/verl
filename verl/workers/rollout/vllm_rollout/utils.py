@@ -13,6 +13,7 @@
 # limitations under the License.
 import ctypes
 import dataclasses
+import functools
 import json
 import logging
 import os
@@ -433,6 +434,7 @@ class SuppressSignalInThread:
         signal.signal = self.original_signal
 
 
+@functools.lru_cache(maxsize=1)
 def _optional_bool_vllm_args() -> set[str]:
     """Return the names of vLLM `AsyncEngineArgs` fields typed exactly `bool | None`.
 
