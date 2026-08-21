@@ -514,9 +514,11 @@ class PPOTrainer(ABC):
         )
         sample_batch_size = train_batch_size // self.parameter_sync_step
 
-        self._add_batch_to_generate()
+        prepare_metrics = self.prepare_step()
 
         metrics_aggregator = MetricsAggregator()
+        if prepare_metrics:
+            metrics_aggregator.add_step_metrics(prepare_metrics)
         combined_keys: list = []
         combined_tags: list = []
         combined_partition_id = "train"
@@ -1414,6 +1416,10 @@ class PPOTrainer(ABC):
         """Add one training batch to the AgentLoopManager."""
         batch = self._next_train_batch()
         self._submit_batch_to_rollout(batch)
+
+    def prepare_step(self) -> dict:
+        self._add_batch_to_generate()
+        return {}
 
     def _compute_reward_colocate(self, batch: KVBatchMeta, metrics: dict | None = None) -> KVBatchMeta:
         """Compute the reward score with a colocated reward model."""
