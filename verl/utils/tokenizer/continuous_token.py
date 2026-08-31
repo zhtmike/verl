@@ -809,6 +809,19 @@ class DeepSeekContinuousTokenBuilder(ContinuousTokenBuilder):
             return None
         return int(token_id)
 
+    def _synthetic_assistant_for_tools(
+        self,
+        tool_messages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        # The R1 / V3.1 / V3.2 templates splice ``tool['function']['arguments']`` into
+        # the prompt by string concatenation, so a mapping raises TypeError there. The
+        # synthetic tool call only exists to be diffed away; carry its arguments as the
+        # JSON string those templates expect.
+        synthetic_assistant = super()._synthetic_assistant_for_tools(tool_messages)
+        for tool_call in synthetic_assistant["tool_calls"]:
+            tool_call["function"]["arguments"] = "{}"
+        return synthetic_assistant
+
     def _merge_non_assistant_token_ids(
         self, runtime_token_ids: list[int], appended_token_ids: list[int]
     ) -> MergeResult:
